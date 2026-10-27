@@ -95,3 +95,19 @@ P0 firmware build, then P1.1 to P1.5 as one vertical slice (store, state machine
 P2.1 and P2.2 (shared client and parser), then P2.3 and P2.4, then P3, then P1.6 and P1.7
 alongside P2 because provisioning and status UI both benefit from a working network path, then
 P4 last.
+
+## 9. Portability tasks (conditional)
+
+Only needed if a Windows host must run the full gate natively. Until then, Windows uses native
+build and flash plus WSL2 or CI for the gate, per `development-environment.md` section 8.
+
+| ID | Task | Acceptance |
+| --- | --- | --- |
+| PT.1 | Detect a missing host compiler in `validate.sh` and fail with a clear message instead of a confusing link error | Simulated on Linux with `CC=/nonexistent`; message names the compiler requirement |
+| PT.2 | Accept a preinstalled `actionlint` on Windows instead of calling the installer | Already partly supported via `ACTIONLINT_BIN`; add a documented path and a check that prints the fix |
+| PT.3 | Replace `install -m 0644` with a portable copy | Gate passes in an environment without GNU `install` |
+| PT.4 | Add `.gitattributes` pinning LF for `*.sh` and text files | Fresh Windows checkout yields LF in working tree; gate scripts run without `/usr/bin/env` errors |
+
+PT.4 is cheap and prevents a whole class of confusing failures; it is worth doing even before
+Windows is a primary platform. PT.1 to PT.3 are waste unless a Windows-native gate is actually
+required.

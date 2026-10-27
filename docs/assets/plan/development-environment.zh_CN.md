@@ -93,3 +93,69 @@ idf.py --version    # 期望输出：ESP-IDF v5.5.3-dirty
 - 该 checkout 是完整克隆而非浅克隆，保留了 IDF 的 Git 历史；IDF 加工具链共约 3.2 GB。
 - 安装时可用磁盘约 28 GB。构建产物和 `managed_components` 会持续占用，加入大素材或字体前
   先看剩余空间。
+
+## 8. 在 Windows 上开发
+
+在 Windows 上构建和烧录是官方支持的，也不难。摩擦全在仓库自己的 shell 门禁，不在固件。
+
+### 8.1 按文档就能用的部分
+
+- ESP-IDF Tools Installer 装 v5.5.3 工具链后，`idf.py build`、`idf.py flash`、`idf.py monitor`
+  与 Linux 上表现一致。用安装器生成的 ESP-IDF Command Prompt 执行即可。
+- Git 操作与 Python 测试套件是跨平台的。Python 测试用 `pathlib`，没有 POSIX 专用路径。
+- 主机测试本身是跨平台的 C：`tests/*.c` 只 include `assert.h`、`stddef.h`、`stdio.h`、
+  `stdlib.h`、`string.h`，没有 POSIX 专有依赖。
+
+### 8.2 门禁脚本假设了什么
+
+`tools/validate.sh` 假设有 POSIX shell 以及：
+
+- 支持 `set -euo pipefail` 的 bash
+- `mktemp -d /tmp/...` 与 `rm -rf`
+- 名为 `cc` 或通过 `$CC` 指定的主机 C 编译器
+- firmware 模式下的 `install -m 0644`
+- `actionlint`，在 `PATH` 上或通过 `ACTIONLINT_BIN` 指定
+
+在 Windows 上，这些落成四个具体缺口：
+
+- **没有主机编译器。** Git Bash 和 ESP-IDF 都不提供 x86 Windows 编译器；RISC-V 交叉工具链
+  无法生成 Windows 测试二进制。用 MinGW-w64（MSYS2 的 `mingw-w64-x86_64-gcc` 或 winlibs）
+  或 LLVM clang，并把 `CC` 指向它。
+- **actionlint 安装脚本没有 Windows 分支。** `tools/install-actionlint.sh` 只处理 Linux 与
+  Darwin；Git Bash 里 `uname -s` 报 `MINGW64_NT-*` 或 `MSYS_NT-*`，脚本直接以
+  `Unsupported actionlint platform` 退出。改为单独安装 actionlint（winget、scoop 或官方
+  `windows_amd64` 归档），放到 `PATH` 上或设 `ACTIONLINT_BIN`。`validate.sh` 在调安装脚本
+  之前会先检查这两处，所以这个绕法是受支持的。
+- **Git Bash 不保证有 `install -m 0644`。** 它属于 GNU coreutils，firmware 模式的复制步骤
+  可能报 `install: command not found`。依赖 `--firmware` 前先确认，或改用 MSYS2 跑门禁。
+- **符号链接技能需要提权。** `tools/install_passport_skills.py` 创建目录软链接，Windows 上
+  需要开发者模式或管理员权限。失败时脚本会打印 `skills/<name>/SKILL.md` 的原始路径并以非零
+  退出。直接读这些文件就满足「五个技能可用」的要求，软链接只是方便。
+
+### 8.3 换行符陷阱
+
+仓库没有 `.gitattributes`。Git for Windows 默认 `core.autocrlf=true`，会把 CRLF 写进工作树，
+让首行为 `#!/usr/bin/env bash` 的脚本全部失效，报经典的
+`/usr/bin/env: 'bash\r': No such file or directory`。
+
+Windows 主机首次 checkout 之前：
+
+```bash
+git config core.autocrlf input
+```
+
+按仓库设置即可，不需要改全局。
+
+### 8.4 建议
+
+把 Windows 当作编辑与烧录主机。
+
+- **固件构建与烧录**：原生 Windows 没问题。
+- **门禁（`--static`）**：放 WSL2 跑，或者交给 CI。CI 每次 push 和 PR 都跑 `ubuntu-latest`，
+  所以 Windows 本地门禁失败不会造成未经校验的合并。
+- **Windows 原生跑主机测试**：可行，但要先补编译器和 actionlint 路径。等 Windows 成为主力
+  平台时再做，不必提前。
+
+如果将来确实要求 Windows 原生门禁，工作量是可控的：检查 `cc` 是否存在、检查 `actionlint`
+路径、用可移植方式替换 `install -m 0644`、加一个把 `*.sh` 固定为 LF 的 `.gitattributes`。
+这些都作为可移植性任务列在 `task-breakdown.md` 里。

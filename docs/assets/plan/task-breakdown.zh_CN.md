@@ -90,3 +90,18 @@ P0 剩下的就是首次固件构建。它必须在提交任何应用代码之�
 接着 P2.1 与 P2.2（共用客户端与解析器），再 P2.3 与 P2.4，然后 P3，
 P1.6 与 P1.7 可以并行放在 P2 阶段之后，因为配网和状态页都受益于可用的网络路径，
 最后做 P4。
+
+## 9. 可移植性任务（条件触发）
+
+只有当 Windows 主机必须原生跑全套门禁时才需要。在那之前，按 `development-environment.md`
+第 8 节：Windows 用原生构建与烧录，门禁交给 WSL2 或 CI。
+
+| 编号 | 任务 | 验收 |
+| --- | --- | --- |
+| PT.1 | `validate.sh` 检测主机编译器缺失，给出清晰提示而不是难懂的链接错误 | 用 `CC=/nonexistent` 在 Linux 上模拟；提示信息明确说出编译器要求 |
+| PT.2 | Windows 上接受已安装的 `actionlint`，不强行调安装脚本 | 已部分支持 `ACTIONLINT_BIN`；补上文档路径与打印修复办法的检查 |
+| PT.3 | 用可移植复制替换 `install -m 0644` | 在没有 GNU `install` 的环境里门禁仍通过 |
+| PT.4 | 增加 `.gitattributes`，把 `*.sh` 与文本文件固定为 LF | Windows 全新 checkout 工作树为 LF；门禁脚本不再报 `/usr/bin/env` 错误 |
+
+PT.4 便宜且能消掉一整类难查的故障，值得在 Windows 成为主力平台之前就做。
+PT.1 到 PT.3 在真正需要 Windows 原生门禁之前都是浪费。

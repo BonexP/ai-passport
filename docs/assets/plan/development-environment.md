@@ -104,3 +104,73 @@ No flash or monitor operation has been performed so far.
   tools use about 3.2 GB.
 - Free disk space was about 28 GB at setup time. Build artifacts and `managed_components` consume
   the remainder over time; monitor before adding large assets or fonts.
+
+## 8. Working from a Windows host
+
+Building and flashing on Windows is officially supported and straightforward. The friction is
+entirely in the repository's shell gate, not in the firmware.
+
+### 8.1 What works as documented
+
+- ESP-IDF Tools Installer for v5.5.3 installs the toolchain; `idf.py build`, `idf.py flash` and
+  `idf.py monitor` behave as on Linux. Run them from the installer's ESP-IDF Command Prompt.
+- Git operations and the Python test suite are portable. The Python tests use `pathlib`; no
+  POSIX-only paths.
+- The host tests themselves are portable C: `tests/*.c` include only `assert.h`, `stddef.h`,
+  `stdio.h`, `stdlib.h` and `string.h`. Nothing POSIX-specific.
+
+### 8.2 What the gate assumes
+
+`tools/validate.sh` assumes a POSIX shell plus:
+
+- bash supporting `set -euo pipefail`
+- `mktemp -d /tmp/...` and `rm -rf`
+- a host C compiler reachable as `cc` or via `$CC`
+- `install -m 0644` in the firmware mode
+- `actionlint`, either on `PATH` or through `ACTIONLINT_BIN`
+
+On Windows these translate into four concrete gaps:
+
+- **No host compiler.** Neither Git Bash nor ESP-IDF ships an x86 Windows compiler; the
+  RISC-V cross toolchain cannot produce Windows test binaries. Use MinGW-w64 (MSYS2
+  `mingw-w64-x86_64-gcc` or winlibs) or LLVM clang, and set `CC` to it.
+- **actionlint installer has no Windows branch.** `tools/install-actionlint.sh` handles only
+  Linux and Darwin; on Git Bash `uname -s` reports `MINGW64_NT-*` or `MSYS_NT-*`, so it exits
+  with `Unsupported actionlint platform`. Install actionlint separately (winget, scoop, or the
+  official `windows_amd64` archive) and either put it on `PATH` or set `ACTIONLINT_BIN`.
+  `validate.sh` checks both before invoking the installer, so this workaround is supported.
+- **`install -m 0644` is not guaranteed in Git Bash.** It is GNU coreutils; the firmware mode's
+  copy step may fail with `install: command not found`. Verify before relying on `--firmware`, or
+  run the gate from MSYS2.
+- **Symlinked skills need elevation.** `tools/install_passport_skills.py` creates directory
+  symlinks, which on Windows require Developer Mode or an elevated shell. On failure the script
+  prints the canonical `skills/<name>/SKILL.md` paths and exits nonzero. Reading those files
+  directly satisfies the "five skills available" requirement; the link is only convenience.
+
+### 8.3 The line-ending trap
+
+The repository has no `.gitattributes`. Git for Windows defaults to `core.autocrlf=true`, which
+writes CRLF into the working tree and breaks every script whose first line is
+`#!/usr/bin/env bash`, with the classic `/usr/bin/env: 'bash\r': No such file or directory`.
+
+Before the first checkout on a Windows host:
+
+```bash
+git config core.autocrlf input
+```
+
+Setting it per repository is enough; no global change is needed.
+
+### 8.4 Recommendation
+
+Treat Windows as an editing and flashing host.
+
+- **Firmware build and flash:** native Windows is fine.
+- **The gate (`--static`):** run it in WSL2, or let CI run it. CI uses `ubuntu-latest` on every
+  push and pull request, so a Windows-local gate failure never produces an unverified merge.
+- **Host tests on Windows native:** possible, but only after adding a compiler and an actionlint
+  path. Do it when Windows becomes a primary platform, not before.
+
+If a Windows-native gate is later required, the work is bounded: a `cc` presence check, an
+`actionlint` path check, a portable replacement for `install -m 0644`, and a `.gitattributes`
+pinning LF for `*.sh`. Those are listed as portability tasks in `task-breakdown.md`.
