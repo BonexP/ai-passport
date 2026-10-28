@@ -5,6 +5,10 @@ managed_components/
 .vscode/
 .idea/
 
+# Local agent workspace data (session memory, scratch plans). Never part of the
+# repository, and never scanned by tools/check_repo.py.
+.workbuddy/
+
 # Generated repository-local links; canonical skill sources live in skills/.
 /.agents/skills/passport-develop
 /.agents/skills/passport-setup
