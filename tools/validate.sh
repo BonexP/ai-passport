@@ -35,6 +35,14 @@ run_static_checks() {
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_key_guard.c -o "${test_dir}/test_key_guard"
     "${test_dir}/test_key_guard"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_profile.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_profile"
+    "${test_dir}/test_wifi_profile"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_connect_policy.c main/wifi_connect_policy.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_connect_policy"
+    "${test_dir}/test_wifi_connect_policy"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
         tests/test_bsp_display_rounding.c components/bsp/src/bsp_display_rounding.c \
         -o "${test_dir}/test_bsp_display_rounding"
