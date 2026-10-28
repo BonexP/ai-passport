@@ -148,14 +148,20 @@ git config core.autocrlf input
 
 ### 8.4 建议
 
-把 Windows 当作编辑与烧录主机。
+Windows 上编辑，CI 上验证，Windows 上烧录。这是主路径，而且它让 WSL2 变得完全没必要。
 
-- **固件构建与烧录**：原生 Windows 没问题。
-- **门禁（`--static`）**：放 WSL2 跑，或者交给 CI。CI 每次 push 和 PR 都跑 `ubuntu-latest`，
-  所以 Windows 本地门禁失败不会造成未经校验的合并。
-- **Windows 原生跑主机测试**：可行，但要先补编译器和 actionlint 路径。等 Windows 成为主力
-  平台时再做，不必提前。
+- **编辑**：Windows，只需要 Git 和编辑器，不需要门禁工具链的任何组件。
+- **构建与门禁**：CI 的 `ubuntu-latest`，由 pull request 触发。这台装有本地工具链的 Linux 主机
+  是快速自检和后备手段，不是必需品。
+- **烧录与真机验收**：Windows 原生，在 ESP-IDF Command Prompt 里做。
+- **同步**：远端仓库，整个分工靠它成立。
+
+结论：8.2 里的四个缺口一个都不用补。不需要 MSYS2 或 winlibs 编译器，不需要手动装 actionlint，
+不需要可移植的 `install`。唯一的硬前提是 8.3：第一次 checkout 前设 `core.autocrlf input`，
+并依赖仓库里的 `.gitattributes` 把脚本固定为 LF。
+
+有一条必须记住：CI 只是编译，它看不见设备。PR 变绿只证明 Build 与 Host tests；屏幕、按键、
+音频、电池、Wi-Fi 行为仍然属于真机结果，在有人拿着板子确认之前一律记 `Unverified`。
 
 如果将来确实要求 Windows 原生门禁，工作量是可控的：检查 `cc` 是否存在、检查 `actionlint`
-路径、用可移植方式替换 `install -m 0644`、加一个把 `*.sh` 固定为 LF 的 `.gitattributes`。
-这些都作为可移植性任务列在 `task-breakdown.md` 里。
+路径、用可移植方式替换 `install -m 0644`。这些仍作为条件任务列在 `task-breakdown.md` 里。

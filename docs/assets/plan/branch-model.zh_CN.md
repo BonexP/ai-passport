@@ -105,3 +105,32 @@ git push origin feature/my-custom
 `docs/reference/<用户名>/<应用名>/`。发布后的流程用 `experience-pr` 与 `plays-archive` 技能。
 
 fork 专属的产品决策留在这个 fork，永不回流上游。
+
+## 8. 怎么触发 CI
+
+在以 Windows 为主的流程里，CI 是主要验证路径。它的触发条件是具体的，只推送不够。
+
+| Workflow | 触发条件 | 跑什么 |
+| --- | --- | --- |
+| `static-checks.yml` | pull request、push 到 `main`、手动 dispatch | 仓库检查、actionlint、全部主机测试 |
+| `firmware-checks.yml` | pull request、push 到 `main`、手动 dispatch | 完整 ESP-IDF 构建与合并镜像校验 |
+| `build-firmware.yml` | push tag、手动 dispatch | 构建并创建 GitHub Release |
+
+实务上必须记住的几点：
+
+- 推送到 `feature/my-custom` 或任何非 `main` 分支**不会触发任何检查**。只有 pull request 才会。
+- `firmware-checks.yml` 忽略只改 `docs/**`、`skills/**`、`*.md` 的变更。纯文档的 PR 仍会跑
+  `static-checks.yml`，但不会构建固件。
+- 三个 workflow 都有 `workflow_dispatch`，所以可以在 Actions 页面手动跑一次，不必为此开 PR。
+  当某个分支推送需要验证、但还不想走评审时，这是逃生口。
+
+推荐流程：
+
+1. 在 `feature/my-custom`（或 `feature/<topic>` 分支）上提交并推送。
+2. 开 pull request。只做自检时 base 可以直接是 `feature/my-custom`；要认真评审时，用 topic 分支
+   对 `feature/my-custom` 开 PR。
+3. 等 `Static checks` 与 `Firmware checks` 都变绿。
+4. 用合并提交合入，保留主题边界。
+
+CI 只做编译与主机测试，它看不见设备。屏幕、按键、音频、电池、Wi-Fi 行为在交付报告里
+一律记为 `Unverified`，直到有人拿着板子确认。

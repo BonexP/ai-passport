@@ -98,16 +98,19 @@ P4 last.
 
 ## 9. Portability tasks (conditional)
 
-Only needed if a Windows host must run the full gate natively. Until then, Windows uses native
-build and flash plus WSL2 or CI for the gate, per `development-environment.md` section 8.
+The chosen workflow is: edit on Windows, verify on CI, flash on Windows. Under that workflow the
+gate never runs on Windows, so PT.1 to PT.3 below are **not needed**. They are recorded so the work
+is scoped if the decision ever changes.
 
-| ID | Task | Acceptance |
-| --- | --- | --- |
-| PT.1 | Detect a missing host compiler in `validate.sh` and fail with a clear message instead of a confusing link error | Simulated on Linux with `CC=/nonexistent`; message names the compiler requirement |
-| PT.2 | Accept a preinstalled `actionlint` on Windows instead of calling the installer | Already partly supported via `ACTIONLINT_BIN`; add a documented path and a check that prints the fix |
-| PT.3 | Replace `install -m 0644` with a portable copy | Gate passes in an environment without GNU `install` |
-| PT.4 | Add `.gitattributes` pinning LF for `*.sh` and text files | Fresh Windows checkout yields LF in working tree; gate scripts run without `/usr/bin/env` errors |
+| ID | Task | Status | Acceptance |
+| --- | --- | --- | --- |
+| PT.1 | Detect a missing host compiler in `validate.sh` and fail with a clear message | not needed | Simulated on Linux with `CC=/nonexistent`; message names the compiler requirement |
+| PT.2 | Accept a preinstalled `actionlint` without calling the installer | not needed | Documented path plus a check that prints the fix |
+| PT.3 | Replace `install -m 0644` with a portable copy | not needed | Gate passes without GNU `install` |
+| PT.4 | Pin line endings with `.gitattributes` | **done** | Fresh Windows checkout yields LF; scripts run without `/usr/bin/env` errors |
 
-PT.4 is cheap and prevents a whole class of confusing failures; it is worth doing even before
-Windows is a primary platform. PT.1 to PT.3 are waste unless a Windows-native gate is actually
-required.
+PT.4 is done because it is the only hard prerequisite of the Windows-editing workflow: without it a
+single checkout on Windows can write CRLF into the working tree and break every shell script.
+
+The reason PT.1 to PT.3 are deferred rather than dropped: they only matter if a Windows-native gate
+becomes a requirement, and each is small enough to pick up later without redesign.

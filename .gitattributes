@@ -1,0 +1,30 @@
+# Normalise line endings on checkout and commit.
+# Scripts and configuration must stay LF; a CRLF checkout breaks every
+# `#!/usr/bin/env bash` shebang with "/usr/bin/env: 'bash\r': No such file".
+* text=auto eol=lf
+
+# Explicit: never convert these to CRLF.
+*.sh        text eol=lf
+*.py        text eol=lf
+*.c         text eol=lf
+*.h         text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.csv       text eol=lf
+*.json      text eol=lf
+
+# Binary assets must stay untouched.
+*.bin       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.mp3       binary
+*.wav       binary
+*.ttf       binary
+*.otf       binary
+*.zip       binary
+*.tar.gz    binary
+*.xz        binary

@@ -163,14 +163,24 @@ Setting it per repository is enough; no global change is needed.
 
 ### 8.4 Recommendation
 
-Treat Windows as an editing and flashing host.
+Edit on Windows, verify on CI, flash on Windows. This is the primary path and it removes the need
+for WSL2 entirely.
 
-- **Firmware build and flash:** native Windows is fine.
-- **The gate (`--static`):** run it in WSL2, or let CI run it. CI uses `ubuntu-latest` on every
-  push and pull request, so a Windows-local gate failure never produces an unverified merge.
-- **Host tests on Windows native:** possible, but only after adding a compiler and an actionlint
-  path. Do it when Windows becomes a primary platform, not before.
+- **Editing:** Windows, with Git and an editor. Nothing from the gate toolchain is required.
+- **Build and the gate:** CI on `ubuntu-latest`, triggered by a pull request. The Linux host with
+the local toolchain is a fast pre-check and a fallback, not a requirement.
+- **Flashing and on-device acceptance:** native Windows, from the ESP-IDF Command Prompt.
+- **Synchronisation:** the remote repository; that is what makes the split work.
 
-If a Windows-native gate is later required, the work is bounded: a `cc` presence check, an
-`actionlint` path check, a portable replacement for `install -m 0644`, and a `.gitattributes`
-pinning LF for `*.sh`. Those are listed as portability tasks in `task-breakdown.md`.
+Consequence: none of the four gaps in 8.2 need fixing. No MSYS2 or winlibs compiler, no manual
+actionlint, no portable `install`. The only hard prerequisite is section 8.3: set
+`core.autocrlf input` before the first checkout, and rely on the repository `.gitattributes` that
+pins LF for scripts.
+
+One caveat that must not be lost: CI compiles, it does not observe the device. A green pull
+request proves Build and Host tests; the screen, buttons, audio, battery and Wi-Fi behaviour
+remain device results and stay `Unverified` until someone with the board confirms them.
+
+If a Windows-native gate is ever required anyway, the work is bounded: a `cc` presence check, an
+`actionlint` path check, and a portable replacement for `install -m 0644`. Those stay listed as
+conditional tasks in `task-breakdown.md`.

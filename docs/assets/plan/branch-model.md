@@ -109,3 +109,36 @@ from `upstream/main`. Application archives go to `docs/reference/<username>/<app
 Use the `experience-pr` and `plays-archive` skills for the post-release flow.
 
 Fork-specific product decisions stay in this fork and never go upstream.
+
+## 8. Triggering CI
+
+CI is the primary verification path for a Windows-based workflow. Its triggers are specific, and
+pushing alone is not enough.
+
+| Workflow | Triggers | Runs |
+| --- | --- | --- |
+| `static-checks.yml` | pull request, push to `main`, manual dispatch | repository checks, actionlint, all host tests |
+| `firmware-checks.yml` | pull request, push to `main`, manual dispatch | full ESP-IDF build and merged-image verification |
+| `build-firmware.yml` | push of a tag, manual dispatch | build plus GitHub Release |
+
+Consequences that matter in practice:
+
+- A push to `feature/my-custom` or any other non-`main` branch triggers **nothing**. Only a pull
+  request does.
+- `firmware-checks.yml` ignores changes limited to `docs/**`, `skills/**` and `*.md`. A
+  documentation-only pull request still runs `static-checks.yml`, but no firmware build.
+- `workflow_dispatch` is available on all three workflows, so a manual run is possible from the
+  Actions tab without opening a pull request. That is the escape hatch when a branch push needs
+  verification but no review is wanted yet.
+
+Recommended flow:
+
+1. Commit on `feature/my-custom` (or a `feature/<topic>` branch) and push.
+2. Open a pull request. For quick self-checks the base can be `feature/my-custom` itself; for
+   real review, use a topic branch against `feature/my-custom`.
+3. Wait for both `Static checks` and `Firmware checks`. Both must be green.
+4. Merge with a merge commit, keeping the topic boundary visible.
+
+CI compiles and runs host tests. It cannot observe the device. Screen, buttons, audio, battery and
+Wi-Fi behaviour stay `Unverified` in the delivery report until someone with the board confirms
+them.

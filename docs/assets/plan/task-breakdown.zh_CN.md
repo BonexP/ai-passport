@@ -93,15 +93,18 @@ P1.6 与 P1.7 可以并行放在 P2 阶段之后，因为配网和状态页都�
 
 ## 9. 可移植性任务（条件触发）
 
-只有当 Windows 主机必须原生跑全套门禁时才需要。在那之前，按 `development-environment.md`
-第 8 节：Windows 用原生构建与烧录，门禁交给 WSL2 或 CI。
+选定的工作方式是：Windows 编辑、CI 验证、Windows 烧录。在这种方式下门禁从不在 Windows 上跑，
+所以下面 PT.1 到 PT.3 **不需要做**。保留记录是为了万一决策改变时工作量是清楚的。
 
-| 编号 | 任务 | 验收 |
-| --- | --- | --- |
-| PT.1 | `validate.sh` 检测主机编译器缺失，给出清晰提示而不是难懂的链接错误 | 用 `CC=/nonexistent` 在 Linux 上模拟；提示信息明确说出编译器要求 |
-| PT.2 | Windows 上接受已安装的 `actionlint`，不强行调安装脚本 | 已部分支持 `ACTIONLINT_BIN`；补上文档路径与打印修复办法的检查 |
-| PT.3 | 用可移植复制替换 `install -m 0644` | 在没有 GNU `install` 的环境里门禁仍通过 |
-| PT.4 | 增加 `.gitattributes`，把 `*.sh` 与文本文件固定为 LF | Windows 全新 checkout 工作树为 LF；门禁脚本不再报 `/usr/bin/env` 错误 |
+| 编号 | 任务 | 状态 | 验收 |
+| --- | --- | --- | --- |
+| PT.1 | `validate.sh` 检测主机编译器缺失并给出清晰提示 | 不需要 | 用 `CC=/nonexistent` 在 Linux 上模拟；提示明确说出编译器要求 |
+| PT.2 | 接受已安装的 `actionlint`，不强调安装脚本 | 不需要 | 有文档路径，且检查会打印修复办法 |
+| PT.3 | 用可移植复制替换 `install -m 0644` | 不需要 | 没有 GNU `install` 的环境里门禁仍通过 |
+| PT.4 | 用 `.gitattributes` 固定换行符 | **已完成** | Windows 全新 checkout 工作树为 LF；脚本不再报 `/usr/bin/env` 错误 |
 
-PT.4 便宜且能消掉一整类难查的故障，值得在 Windows 成为主力平台之前就做。
-PT.1 到 PT.3 在真正需要 Windows 原生门禁之前都是浪费。
+PT.4 做了，因为它是「Windows 编辑」工作方式唯一的硬前提：没有它，Windows 上一次 checkout 就可能
+把 CRLF 写进工作树，让所有 shell 脚本失效。
+
+PT.1 到 PT.3 是延后而不是放弃：它们只在要求 Windows 原生门禁时才有意义，每项都很小，
+将来捡起来不需要重新设计。
