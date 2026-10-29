@@ -54,11 +54,6 @@ size_t wifi_profile_encode(const wifi_profile_t *p, uint8_t *buf, size_t cap) {
     buf[1] = (uint8_t)name_len;
     buf[2] = (uint8_t)ssid_len;
     buf[3] = (uint8_t)pass_len;
-    buf[4] = (uint8_t)(p->last_ok_seq & 0xffu);
-    buf[5] = (uint8_t)((p->last_ok_seq >> 8) & 0xffu);
-    buf[6] = (uint8_t)((p->last_ok_seq >> 16) & 0xffu);
-    buf[7] = (uint8_t)((p->last_ok_seq >> 24) & 0xffu);
-    buf[8] = p->flags;
 
     uint8_t *cursor = buf + WIFI_PROFILE_RECORD_HEADER;
     memcpy(cursor, p->name, name_len);
@@ -90,9 +85,6 @@ bool wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out) {
     memcpy(out->ssid, cursor, ssid_len);
     cursor += ssid_len;
     memcpy(out->password, cursor, pass_len);
-    out->last_ok_seq = (uint32_t)buf[4] | ((uint32_t)buf[5] << 8) |
-                         ((uint32_t)buf[6] << 16) | ((uint32_t)buf[7] << 24);
-    out->flags = buf[8];
     return true;
 }
 

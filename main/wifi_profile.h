@@ -24,26 +24,22 @@
 
 // 序列化格式版本。字段布局一旦变化必须递增；读到未知版本时按"没有可用 profile"
 // 处理，不猜测、更不擦除（擦除由用户显式触发）。
-#define WIFI_PROFILE_RECORD_VERSION 1u
+// v2：只保留三个字符串字段。曾经有过 last_ok_seq 与 flags，两者都没有任何消费方
+// ——记录头因此由 9 字节缩到 4 字节，一条记录的字节数就是它真正承载的信息。
+#define WIFI_PROFILE_RECORD_VERSION 2u
 
-// 记录头长度：版本 + name/ssid/pass 三个长度 + 4 字节时间戳 + 标志位。
-#define WIFI_PROFILE_RECORD_HEADER 9u
+// 记录头长度：版本 + name/ssid/pass 三个长度。
+#define WIFI_PROFILE_RECORD_HEADER 4u
 
 // 单条记录的容量上界，用来在栈上开临时缓冲。
 #define WIFI_PROFILE_RECORD_MAX                                              \
     (WIFI_PROFILE_RECORD_HEADER + (WIFI_PROFILE_NAME_MAX - 1) +              \
      (WIFI_PROFILE_SSID_MAX - 1) + (WIFI_PROFILE_PASS_MAX - 1))
 
-#define WIFI_PROFILE_FLAG_ENABLED 0x01u
-
 typedef struct {
-    char     name[WIFI_PROFILE_NAME_MAX];
-    char     ssid[WIFI_PROFILE_SSID_MAX];
-    char     password[WIFI_PROFILE_PASS_MAX];
-    // 最近一次成功的单调序号，0 = 从未成功。设备没有 RTC，存真实时间戳跨重启就没有
-    // 意义（重启后从 0 开始），所以每次成功取"全库最大值 + 1"，排名在任何时候都成立。
-    uint32_t last_ok_seq;
-    uint8_t  flags; // WIFI_PROFILE_FLAG_*
+    char name[WIFI_PROFILE_NAME_MAX];
+    char ssid[WIFI_PROFILE_SSID_MAX];
+    char password[WIFI_PROFILE_PASS_MAX];
 } wifi_profile_t;
 
 // ---- 键值存储抽象 ----
@@ -118,15 +114,13 @@ int8_t                 wifi_profile_store_active(const wifi_profile_store_t *s);
 //   1  u8   name_len
 //   2  u8   ssid_len
 //   3  u8   pass_len
-//   4  u32  last_ok_seq（小端）
-//   8  u8   flags
-//   9  ...  name | ssid | password   （无结尾 NUL）
+//   4  ...  name | ssid | password   （无结尾 NUL）
 //
 // encode 返回写入字节数，0 表示记录非法或缓冲不足。
 // decode 校验版本、长度自洽与字段上限，任一不满足都返回 false。
 size_t wifi_profile_encode(const wifi_profile_t *p, uint8_t *buf, size_t cap);
 bool   wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out);
 
-// 一次性填好三个字符串字段并校验长度；成功时把 last_ok_seq 与 flags 清零。
+// 一次性填好三个字符串字段并校验长度。
 bool wifi_profile_set_fields(wifi_profile_t *p, const char *name, const char *ssid,
                              const char *password);

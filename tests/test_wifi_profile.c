@@ -116,8 +116,6 @@ static wifi_profile_t make_profile(const char *name, const char *ssid, const cha
     wifi_profile_t p;
     bool ok = wifi_profile_set_fields(&p, name, ssid, pass);
     assert(ok);
-    p.last_ok_seq = 1700000000u;
-    p.flags = WIFI_PROFILE_FLAG_ENABLED;
     return p;
 }
 
@@ -154,8 +152,6 @@ static void test_round_trip_preserves_every_field(void) {
     assert(strcmp(got->name, p.name) == 0);
     assert(strcmp(got->ssid, p.ssid) == 0);
     assert(strcmp(got->password, p.password) == 0);
-    assert(got->last_ok_seq == p.last_ok_seq);
-    assert(got->flags == p.flags);
 }
 
 static void test_ninth_profile_is_rejected(void) {

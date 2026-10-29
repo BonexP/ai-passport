@@ -61,7 +61,9 @@ are all built-in ESP-IDF 5.5.3 components, so no new managed dependency is requi
 
 Mechanism, using only built-in APIs:
 
-1. Store N profiles in NVS as `{name, ssid, password, last_ok_time}` plus an `active_index`.
+1. Store N profiles in NVS as `{name, ssid, password}` plus an `active_index`. Only *which*
+   network succeeded is kept, never *when*: the board has no RTC, so a timestamp would not
+   survive a reboot, and `active_index` is the only input the state machine needs.
 2. On boot, try `active_index` first; on failure iterate the list with a per-profile timeout
    of about 10 seconds; if all fail, enter a provisioning state.
 3. On disconnect, re-run the whole scan instead of retrying only the last SSID, so the device

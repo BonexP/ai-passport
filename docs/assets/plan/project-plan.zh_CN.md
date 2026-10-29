@@ -57,7 +57,9 @@
 
 机制，只用内置 API：
 
-1. NVS 里存 N 个 profile：`{name, ssid, password, last_ok_time}`，外加 `active_index`。
+1. NVS 里存 N 个 profile：`{name, ssid, password}`，外加 `active_index`。只记"哪个连上了"，
+   不记"什么时候连上的"：设备没有 RTC，时间戳跨重启就没有意义，而状态机唯一需要的输入
+   就是 `active_index`。
 2. 开机先试 `active_index`；失败则按列表遍历，每个 profile 约 10 秒超时；全部失败进入配网状态。
 3. 断线时重跑整个遍历，而不是只重试上一个 SSID，这样人从家到公司，设备跟着换网。
 4. 配网走 BLE（BLUFI 模式）写入 NVS，重启进入纯 Wi-Fi 路径。
