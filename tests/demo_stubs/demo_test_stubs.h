@@ -274,3 +274,6 @@ void test_wifi_fire_disconnected(uint8_t reason);
 extern int test_battery_soc;
 int bsp_battery_soc(void);
 int bsp_battery_mv(void);
+
+/* 队列槽位池跨用例会耗尽，测试之间必须显式清零。 */
+void test_queue_reset(void);

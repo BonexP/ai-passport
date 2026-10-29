@@ -493,3 +493,8 @@ void lv_obj_set_style_border_color(lv_obj_t *object, uint32_t color, int selecto
 int test_battery_soc = 88;
 int bsp_battery_soc(void) { return test_battery_soc; }
 int bsp_battery_mv(void) { return 3900; }
+
+void test_queue_reset(void) {
+    memset(test_queues, 0, sizeof test_queues);
+    test_queue_count = 0;
+}
