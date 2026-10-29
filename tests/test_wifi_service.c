@@ -18,6 +18,9 @@ static wifi_status_snapshot_t snapshot(void) {
 }
 
 static void reset_world(void) {
+    // 上一个用例可能把服务留在运行态；先收干净，否则下一个 start() 直接返回
+    // ESP_ERR_INVALID_STATE，失败会以"莫名其妙的断言"形式出现在别处。
+    wifi_profile_service_stop();
     test_nvs_clear();
     test_wifi_stack_reset();
     test_create_fails = false;
