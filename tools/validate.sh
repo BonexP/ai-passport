@@ -40,6 +40,10 @@ run_static_checks() {
         -o "${test_dir}/test_wifi_profile"
     "${test_dir}/test_wifi_profile"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_presets.c main/wifi_presets.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_presets"
+    "${test_dir}/test_wifi_presets"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_connect_policy.c main/wifi_connect_policy.c main/wifi_profile.c \
         -o "${test_dir}/test_wifi_connect_policy"
     "${test_dir}/test_wifi_connect_policy"
