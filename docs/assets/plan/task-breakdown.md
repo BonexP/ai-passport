@@ -42,12 +42,17 @@ local toolchain exists.
 | P1.3 | Boot connection state machine: try active, then iterate with per-profile timeout, then provisioning state | Host tests cover all-success, mid-list success, all-fail, and timeout paths |
 | P1.4 | Disconnect handling: re-run the full iteration instead of retrying the last SSID | Host test for the transition; device behaviour listed as Unverified until measured |
 | P1.5 | Wi-Fi worker task wiring to the real ESP-IDF APIs | Build passes; runtime reading of free heap and largest free block recorded |
-| P1.6 | Provisioning path decision (BLE per `demo/blufi-provisioning` pattern) | Decision recorded; implementation is a separate task with its own review |
+| P1.6 | Provisioning path decision: **SoftAP** (on-board hotspot plus a web form), no Bluetooth and no companion mini-program | Done; decision recorded in `project-plan.md` section 4.1, implementation split into P1.9 and P1.10 |
 | P1.7 | Status page UI, redesigned rather than copied from a demo | Own layout and key handling described in the delivery report; screen result marked Unverified until seen on the device |
+| P1.8 | Preset credential seeding: `main/wifi_presets.local.h` (gitignored) plus a tracked `wifi_presets.h` that falls back through `__has_include`; `add` then `save` when the store is empty | Empty-store seeding, non-empty store left untouched, and same-SSID updates all covered by host tests; CI firmware carries no presets |
+| P1.9 | SoftAP provisioning service: hotspot, minimal HTTP form, APSTA check that the STA association really works before writing NVS | Form accepts input; a wrong password is visible in the page; success reboots and connects; no captive portal. Device result Unverified until measured |
+| P1.10 | Mode switch and entry point between provisioning and networking: stop service, start provisioning, save, reboot, start service | No residue after the switch (driver, netif and event handlers all unregistered); entry gesture and timeout exit described in the delivery report |
 
 Notes: the state machine from P1.3 is the piece upstream policy most wants under host test.
-Provisioning (P1.6) is deliberately separated because it introduces the BLE stack and the
-"two stacks never coexist" constraint.
+Provisioning (P1.6) is deliberately separated because provisioning and networking are two
+mutually exclusive Wi-Fi modes. With SoftAP chosen, implementation no longer pulls in the BLE
+stack, but it does pull in AP, DHCP and an HTTP server, so memory stays the main risk in that
+slice (see `project-plan.md` sections 7 and 9, item 6).
 
 ## 4. P2: network client, weather, endpoint health
 
@@ -87,16 +92,19 @@ note rather than left implicit:
 
 1. Weather provider: keyed free tier in NVS or keyless endpoint (blocks P2.3).
 2. Stock provider: keyless endpoint or keyed API (blocks P3.2).
-3. Provisioning transport for P1.6: BLE now, or defer and edit profiles by re-flashing.
+3. ~~Provisioning transport for P1.6~~ - settled: **SoftAP**, no Bluetooth, no mini-program
+   (2026-10-29, see `project-plan.md` section 4.1). What remains open is how provisioning is
+   entered (`project-plan.md` section 9, item 5).
 4. Audio: excluded this cycle; revisiting it invalidates the current memory budget.
 5. Endpoint probe list contents for P2.5.
 
 ## 8. Suggested order
 
-P0 firmware build, then P1.1 to P1.5 as one vertical slice (store, state machine, worker), then
-P2.1 and P2.2 (shared client and parser), then P2.3 and P2.4, then P3, then P1.6 and P1.7
-alongside P2 because provisioning and status UI both benefit from a working network path, then
-P4 last.
+P0 firmware build (done), then P1.1 to P1.5 as one vertical slice (store, state machine,
+worker). Next P1.8 preset seeding, because it is what first gives the pipeline real data, then
+P1.7 status page, the first time the result is visible on the screen. After that P1.9 and P1.10
+for provisioning, then P2.1 and P2.2 (shared client and parser), P2.3 and P2.4, P3, and P4
+last.
 
 ## 9. Portability tasks (conditional)
 
