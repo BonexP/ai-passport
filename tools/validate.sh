@@ -91,7 +91,24 @@ run_static_checks() {
         tests/test_bsp_audio_recovery.c components/bsp/src/bsp_es8311_sleep_check.c \
         -o "${test_dir}/test_bsp_audio_recovery"
     "${test_dir}/test_bsp_audio_recovery"
-    for demo in audio low_power ble wifi; do
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_page_router.c main/page_router.c \
+        -o "${test_dir}/test_page_router"
+    "${test_dir}/test_page_router"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_page_status.c main/wifi_status.c main/wifi_status_shared.c \
+        -Wl,--gc-sections -o "${test_dir}/test_page_status"
+    "${test_dir}/test_page_status"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_wifi_service.c tests/demo_stubs/demo_wifi_stack.c \
+        main/wifi_profile.c main/wifi_presets.c main/wifi_profile_nvs.c \
+        main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
+        -Wl,--gc-sections -o "${test_dir}/test_wifi_service"
+    "${test_dir}/test_wifi_service"
+
+    for demo in audio low_power ble; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
             -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
             "tests/test_demo_${demo}_runtime.c" -Wl,--gc-sections \

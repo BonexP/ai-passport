@@ -1,11 +1,11 @@
 // main/wifi_profile_service.h —— profile 管理器的设备侧入口。
 //
 // 负责把纯逻辑的 store 与状态机接到真实的 NVS 和 Wi-Fi 驱动上：一个 worker 任务
-// 独占状态机，esp_event 回调只往队列里塞事件。页面（后续的 UI 轮次）只读状态，
+// 独占状态机，esp_event 回调只往队列里塞事件。页面只读 wifi_status 快照，
 // 不参与连接决策。
 //
-// 本轮刻意不从 app_main 调用：还没有 UI 能观察它，而改动开机行为又无法在真机上
-// 验证。函数进固件编译即可证明对真实 IDF 头文件的类型正确性。
+// 由 app_main 里的 wifi_boot 一次性任务启动（见 main.c）；进入 Audio/BLE/Low Power
+// 页面前由 main.c 停掉，退出后恢复，所以这里必须支持反复 start/stop。
 #pragma once
 
 #include <stdbool.h>
