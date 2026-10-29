@@ -40,7 +40,7 @@ P0 已全部完成。基线构建先于任何应用代码通过，所以后续�
 | P1.5 | 把 Wi-Fi worker 任务接到真实 ESP-IDF API | 构建通过；记录运行时的 free heap 与最大连续块 |
 | P1.6 | 配网路径决策：**SoftAP**（板端热点 + 网页表单），不用蓝牙、不依赖小程序 | 已完成；决策写在 `project-plan.md` §4.1，实现拆为 P1.9 与 P1.10 |
 | P1.7 | 状态页 UI，重新设计而非照搬 demo | 交付报告里说明自有布局与按键交互；屏幕效果在看到真机前记为 Unverified |
-| P1.8 | 预设凭据注入：`main/wifi_presets.local.h`（列入 `.gitignore`）+ 被跟踪的 `wifi_presets.h` 用 `__has_include` 兜底；库为空时 `add` 后 `save` | 空库注入、非空库不动、同 SSID 走更新三条都有主机测试；CI 构建的固件不含预设 |
+| P1.8 | 预设凭据注入：`main/wifi_presets.local.h`（**ignore 条目先提交，再建文件**）+ 兜底落在 `main/wifi_presets.c` 的 `__has_include`；库为空时 `add` 后 `save` | 五条主机测试：空库注入、非空库不动、0 条预设一个 key 都不写、非法字段逐条跳过、落盘失败保留内存且下次开机自愈；CI 构建的固件不含预设 |
 | P1.9 | SoftAP 配网服务：热点 + 最小 HTTP 表单 + APSTA 验证 STA 能连上再落盘 | 表单可提交；密码错误在网页上可见；成功后重启并连上；不做弹窗认证。真机结果在实测前记 Unverified |
 | P1.10 | 配网与联网的模式切换与入口：停 service → 起配网 → 保存 → 重启 → 起 service | 切换后无残留（驱动、netif、事件处理器全部注销）；入口按键与超时退出方式写进交付报告 |
 

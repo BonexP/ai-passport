@@ -80,7 +80,7 @@ The state machine is pure logic and must be extracted into host-testable code, p
 policy. This is the same pattern the `xiaonuo-jianlu` reference application uses.
 
 **Preset credentials: they solve the first connection, not network switching.** The firmware
-may carry one or two personal networks:
+may carry personal networks, up to `WIFI_PROFILE_MAX` (8):
 
 - On boot the profile store is loaded; **when and only when it is empty**, the presets are
   written into it (`add` then `save`). From then on they are ordinary records that take part in
@@ -89,13 +89,19 @@ may carry one or two personal networks:
 - A non-empty store means nothing happens. Deleting every network therefore means "factory
   reset", and the next boot re-seeds the presets. That is deliberate: it avoids an
   "already-seeded" flag, the exact kind of field that was removed on 2026-10-29.
-- A preset whose SSID already exists is treated as the same network and updates it rather than
-  adding a slot, so eight slots cannot be exhausted by duplicates.
+- **A preset never merges with an existing record.** Seeding requires an empty store, so there
+  is no existing record to collide with. The only possible collision is two lines of the same
+  preset file naming one SSID; the first wins and the later one is skipped.
+- A single invalid entry (empty SSID, more than 32 bytes, a password over 64, a display name
+  over 23) skips just that entry rather than leaving the device with no networks at all.
 
 Mechanism: preset values live in `main/wifi_presets.local.h`, which must be listed in
-`.gitignore`; the tracked `main/wifi_presets.h` uses `__has_include` to fall back to an empty
-list when the local file is absent. Kconfig was rejected because it has no arrays and because
-`$`, `"` and `\` in a password need escaping.
+`.gitignore`, and that entry has to be committed before the file is ever created - once a path
+has been in the index, it stays in the scan forever. The tracked `main/wifi_presets.h` only
+declares the accessor contract; the `__has_include` fallback lives in `main/wifi_presets.c`, so
+credentials compile into a single translation unit and neither tests nor the service layer can
+see them. Kconfig was rejected because it has no arrays and because `$`, `"` and `\` in a
+password need escaping.
 
 Three hard boundaries:
 
