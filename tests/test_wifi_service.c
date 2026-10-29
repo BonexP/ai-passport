@@ -22,6 +22,7 @@ static void reset_world(void) {
     // ESP_ERR_INVALID_STATE，失败会以"莫名其妙的断言"形式出现在别处。
     wifi_profile_service_stop();
     test_nvs_clear();
+    test_queue_reset();
     test_wifi_stack_reset();
     test_create_fails = false;
     test_queue_fails = false;
