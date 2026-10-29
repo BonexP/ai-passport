@@ -5,6 +5,11 @@ managed_components/
 .vscode/
 .idea/
 
+# Per-machine preset Wi-Fi credentials. The entry must exist before the file is
+# ever created: once a path is in the index, `git ls-files --cached` keeps
+# scanning it and a later ignore rule cannot undo that.
+/main/wifi_presets.local.h
+
 # Local agent workspace data (session memory, scratch plans). Never part of the
 # repository, and never scanned by tools/check_repo.py.
 .workbuddy/
