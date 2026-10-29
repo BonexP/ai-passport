@@ -37,7 +37,7 @@ Sources: `components/bsp/include/bsp_pins.h`, `docs/hardware-design/AI_HARDWARE_
 | Display | ST7789 240x320 portrait, RGB565, LVGL 9, 24 KB pool plus one 9.6 KB DMA buffer | One quote screen fits; no double buffering, no large images |
 | Buttons | UP / DOWN / OK on a shared GPIO0 ADC ladder | Callbacks must not block; network work goes to worker tasks |
 | Audio | ES8311 I2S full duplex, demo recording buffer about 96 KB | Audio and full networking cannot both stay resident |
-| Radio | Wi-Fi 2.4 GHz STA and NimBLE share the chip, but not the RAM budget | Provisioning and networking are separate modes |
+| Radio | Wi-Fi 2.4 GHz STA and NimBLE share the chip, but not the RAM budget | Networking (STA) and provisioning (SoftAP/APSTA) are separate modes and never run together; provisioning never enables Bluetooth |
 | Battery | CW2017 fuel gauge | Continuous Wi-Fi polling needs a sleep policy |
 
 Upstream's own rule (`AI_HARDWARE_DEVELOPMENT_GUIDE.md`) requires rechecking the 24 KB LVGL
@@ -68,23 +68,44 @@ Mechanism, using only built-in APIs:
    of about 10 seconds; if all fail, enter a provisioning state.
 3. On disconnect, re-run the whole scan instead of retrying only the last SSID, so the device
    follows the user from home to office.
-4. Provisioning uses BLE (BLUFI pattern) and writes NVS, then reboots into a pure Wi-Fi path.
+4. Provisioning uses SoftAP, with **no Bluetooth and no companion mini-program**: the board
+   raises a hotspot and serves a minimal web form, the phone's browser submits SSID and
+   password, and the device verifies the STA association over APSTA before writing NVS, then
+   reboots into a pure STA path. No captive portal: three buttons and a small screen are enough
+   to show the hotspot name and address, while captive-portal probing differs enough across
+   phones that verifying it costs far more than it returns.
+5. Preset credentials seed the first connection only; see below.
 
 The state machine is pure logic and must be extracted into host-testable code, per upstream
 policy. This is the same pattern the `xiaonuo-jianlu` reference application uses.
 
-**Three hard boundaries for preset credentials (compile-time injection).** Preloading personal
-Wi-Fi networks so the device works out of the box, with provisioning as the fallback, is
-allowed, but only within these limits:
+**Preset credentials: they solve the first connection, not network switching.** The firmware
+may carry one or two personal networks:
+
+- On boot the profile store is loaded; **when and only when it is empty**, the presets are
+  written into it (`add` then `save`). From then on they are ordinary records that take part in
+  the normal sweep. `add` promotes the first entry to active on an empty store, so the first
+  preset is tried first.
+- A non-empty store means nothing happens. Deleting every network therefore means "factory
+  reset", and the next boot re-seeds the presets. That is deliberate: it avoids an
+  "already-seeded" flag, the exact kind of field that was removed on 2026-10-29.
+- A preset whose SSID already exists is treated as the same network and updates it rather than
+  adding a slot, so eight slots cannot be exhausted by duplicates.
+
+Mechanism: preset values live in `main/wifi_presets.local.h`, which must be listed in
+`.gitignore`; the tracked `main/wifi_presets.h` uses `__has_include` to fall back to an empty
+list when the local file is absent. Kconfig was rejected because it has no arrays and because
+`$`, `"` and `\` in a password need escaping.
+
+Three hard boundaries:
 
 - **Personal.** A preset may only be the developer's own network. Never commit the real
   credentials of an employer, a university, a client, or anyone else, and never commit a
   public network's account just because it is convenient for testing.
-- **Never in version control.** Values live in the local `sdkconfig`, which `.gitignore`
-  already excludes, and the Kconfig defaults stay empty. CI therefore builds firmware with no
-  presets at all, and those characters never exist in the repository.
-- **Not a security boundary.** Kconfig strings land in the firmware's `.rodata` as plaintext
-  and can be extracted from the device. A preset buys "no provisioning step", not "hidden
+- **Never in version control.** The local header is ignored and does not exist on CI, so CI
+  builds firmware with no presets at all and those characters never exist in the repository.
+- **Not a security boundary.** The strings land in the firmware's `.rodata` as plaintext and
+  can be extracted from the device. A preset buys "no provisioning step", not "hidden
   password"; protecting credentials requires NVS or Flash encryption, which this phase does
   not do. Neither documentation nor UI may imply that a preset protects a password.
 
@@ -171,20 +192,27 @@ each string change is a recurring tax.
 
 1. Pre-allocate LVGL pool, audio DMA (if enabled) and HTTP buffers at boot.
 2. All network, storage and audio work happens in worker tasks.
-3. BLE provisioning and Wi-Fi networking are separate boot modes; the two stacks never run together.
+3. Networking (STA) and provisioning (SoftAP/APSTA) are separate modes and never run together.
+   During provisioning the AP, DHCP, HTTP server and STA share one radio, which is the
+   tightest memory window in the product: the reference implementation had about 13 KiB of
+   largest free block before starting SoftAP and about 31 KiB after deferring audio init.
+   Audio and LVGL animation must be stopped before entering the provisioning screen.
 4. After each feature, record free heap and largest free block in the delivery report.
 
 Reference measurements from the `xiaonuo-jianlu` application on identical hardware and IDF
 version: about 42 KB heap remaining with the Wi-Fi driver resident, about 58 KB required by
 the NimBLE stack, about 33 KB steady-state heap in the audio + Wi-Fi + HTTP + UI combination,
-and audio DMA buffers pre-allocated at boot after a freeze caused by late allocation.
+and audio DMA buffers pre-allocated at boot after a freeze caused by late allocation. The
+13 / 31 KiB SoftAP figures come from the `phoenixzhc` resource-budget record. Choosing SoftAP
+over BLE has a side benefit: the provisioning path never loads NimBLE, so those 58 KB never
+press on the same budget.
 
 ## 8. Phased plan
 
 | Phase | Deliverable | Acceptance |
 | --- | --- | --- |
 | P0 | ESP-IDF 5.5.3 on the Linux host; `./tools/validate.sh` green on the untouched baseline | Build and host tests pass, merged image produced |
-| P1 | Wi-Fi profile manager: NVS storage, boot iteration, state machine with host tests, status page | Reconnects and switches profiles automatically; host tests pass |
+| P1 | Wi-Fi profile manager: NVS storage, preset seeding, boot iteration, state machine with host tests, SoftAP provisioning, status page | Reconnects and switches profiles automatically; presets seeded on first boot; phone can provision over the web form; host tests pass |
 | P2 | HTTP/TLS client with bounded buffers, minimal JSON, weather page, endpoint health page | Shows stale snapshot when offline |
 | P3 | Stock page with eight rows and a host-tested polling scheduler | Correct data during trading hours |
 | P4 | Polish: CJK font, sleep policy, battery readout, offline queue | Overnight battery measurement |
@@ -200,6 +228,13 @@ Unverified.
    provisioning work?
 3. Audio: in scope this cycle or deferred to a later phase after the network stack is stable?
 4. Endpoint probe list and whether mDNS discovery is enough without explicit ICMP targets.
+5. How provisioning is entered: automatically when a full sweep fails, by holding a button, or
+   both? Automatic is effortless but pushes the user into provisioning on every boot once a
+   preset expires; manual is predictable but the user must know the gesture.
+6. Whether APSTA provisioning really fits in RAM on this board. The 13 / 31 KiB figures come
+   from another application and have not been measured here. If they do not hold, the fallback
+   is "save first, verify after reboot", at the cost of learning about a wrong password one
+   reboot later.
 
 ## 10. Evidence index
 
