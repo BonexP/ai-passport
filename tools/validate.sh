@@ -44,6 +44,24 @@ run_static_checks() {
         -o "${test_dir}/test_wifi_presets"
     "${test_dir}/test_wifi_presets"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_status.c main/wifi_status.c \
+        -o "${test_dir}/test_wifi_status"
+    "${test_dir}/test_wifi_status"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_provision_form.c main/wifi_provision_form.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_provision_form"
+    "${test_dir}/test_wifi_provision_form"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_provision_flow.c main/wifi_provision_flow.c \
+        main/wifi_provision_form.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_provision_flow"
+    "${test_dir}/test_wifi_provision_flow"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_provision_html.c main/wifi_provision_html.c \
+        main/wifi_provision_form.c main/wifi_profile.c \
+        -o "${test_dir}/test_wifi_provision_html"
+    "${test_dir}/test_wifi_provision_html"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_connect_policy.c main/wifi_connect_policy.c main/wifi_profile.c \
         -o "${test_dir}/test_wifi_connect_policy"
     "${test_dir}/test_wifi_connect_policy"
