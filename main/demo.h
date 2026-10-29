@@ -2,6 +2,8 @@
 // 新增演示页 = 实现 enter/exit/key，慢服务按需实现 start/stop，再注册到 DEMOS[]。
 #pragma once
 
+#include <stdbool.h>
+
 #include "bsp_button.h"
 
 typedef struct {
