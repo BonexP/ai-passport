@@ -124,8 +124,10 @@ typedef const char *esp_event_base_t;
 typedef void *esp_event_handler_instance_t;
 #define WIFI_EVENT "wifi"
 #define WIFI_EVENT_SCAN_DONE 1
-#define WIFI_STORAGE_RAM 0
-#define WIFI_MODE_STA 0
+/* IDF 真值：flash=0 / ram=1。原先写成 0 是错的，只是没人读过它。 */
+#define WIFI_STORAGE_RAM 1
+/* IDF 真值：NULL=0 / STA=1 / AP=2 / APSTA=3。 */
+#define WIFI_MODE_STA 1
 typedef struct { int unused; } wifi_init_config_t;
 #define WIFI_INIT_CONFIG_DEFAULT() { 0 }
 typedef struct { int rssi; uint8_t ssid[33]; uint8_t primary; } wifi_ap_record_t;
@@ -236,7 +238,17 @@ char     *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len);
 #define WIFI_IF_STA                 0
 
 typedef struct { uint8_t ssid[32]; uint8_t password[64]; } wifi_sta_config_t;
-typedef union { wifi_sta_config_t sta; } wifi_config_t;
+typedef struct {
+    uint8_t  ssid[32];
+    uint8_t  password[64];
+    uint8_t  ssid_len;
+    uint8_t  channel;
+    int      authmode; // wifi_auth_mode_t
+    uint8_t  ssid_hidden;
+    uint8_t  max_connection;
+    uint16_t beacon_interval;
+} wifi_ap_config_t;
+typedef union { wifi_sta_config_t sta; wifi_ap_config_t ap; } wifi_config_t;
 typedef struct { uint8_t reason; } wifi_event_sta_disconnected_t;
 esp_err_t esp_wifi_set_config(int iface, const wifi_config_t *cfg);
 esp_err_t esp_wifi_connect(void);
@@ -277,3 +289,47 @@ int bsp_battery_mv(void);
 
 /* 队列槽位池跨用例会耗尽，测试之间必须显式清零。 */
 void test_queue_reset(void);
+
+/* ==== S3：SoftAP 配网所需的桩面 ==== */
+
+#define WIFI_IF_AP      1
+#define WIFI_MODE_AP    2
+#define WIFI_MODE_APSTA 3
+
+#define WIFI_AUTH_OPEN          0
+#define WIFI_AUTH_WPA_PSK       2
+#define WIFI_AUTH_WPA2_PSK      3
+#define WIFI_AUTH_WPA_WPA2_PSK  4
+
+#define ESP_NETIF_DEFAULT_WIFI_AP() { 0 }
+esp_err_t esp_netif_attach_wifi_ap(esp_netif_t *netif);
+esp_err_t esp_wifi_set_default_wifi_ap_handlers(void);
+
+/* WIFI_EVENT_AP_* 的数值未在固件侧核对过；构建通过即视为核对完成。 */
+#define WIFI_EVENT_AP_STACONNECTED    14
+#define WIFI_EVENT_AP_STADISCONNECTED 15
+#define IP_EVENT_AP_STAIPASSIGNED     2
+typedef struct { uint8_t mac[6]; uint8_t aid; } wifi_event_ap_staconnected_t;
+typedef struct { uint8_t mac[6]; uint8_t aid; } wifi_event_ap_stadisconnected_t;
+typedef struct { esp_ip4_addr_t ip; uint8_t mac[6]; } ip_event_ap_staipassigned_t;
+
+#define ESP_MAC_WIFI_SOFTAP 1
+esp_err_t esp_read_mac(uint8_t *mac, int type);
+
+/* 会话选择器：STA 沿用 1..9 的旧矩阵，AP 用独立计数器，互不干扰。 */
+typedef enum { TEST_WIFI_SESSION_STA = 0, TEST_WIFI_SESSION_AP } test_wifi_session_t;
+void     test_wifi_session(test_wifi_session_t session);
+unsigned test_ap_next_step(void); /* httpd 假件也要参与编号，故导出 */
+extern unsigned test_ap_step, test_ap_fail_at, test_ap_destroys;
+int      test_wifi_mode(void);
+extern wifi_config_t test_wifi_cfg_sta, test_wifi_cfg_ap;
+
+/* 事件注入：按 base + id 分发（覆盖 ANY_ID）。 */
+void test_wifi_fire_event(esp_event_base_t base, int32_t id, void *data);
+void test_wifi_fire_ap_staconnected(void);
+void test_wifi_fire_ap_stadisconnected(void);
+void test_wifi_fire_ap_ipassigned(void);
+
+/* 任务/信号量池跨用例只增不减，必须显式清零。 */
+void test_task_reset(void);
+void test_sem_reset(void);
