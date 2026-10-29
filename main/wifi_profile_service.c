@@ -334,7 +334,7 @@ static void service_task(void *arg) {
 
 static void teardown_stack(void) {
     if (s_wifi_handler != NULL || s_ip_handler != NULL) {
-        (void)esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_ANY_ID, s_wifi_handler);
+        (void)esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_wifi_handler);
         (void)esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, s_ip_handler);
         s_wifi_handler = NULL;
         s_ip_handler = NULL;
@@ -437,7 +437,7 @@ esp_err_t wifi_profile_service_start(void) {
 
     // 用 ANY_ID 一次注册：既要 STA_CONNECTED（用来区分"密码错"与"DHCP 没给地址"），
     // 也要 STA_DISCONNECTED（带原因码）。多注册一次会让失败步骤多一步，不划算。
-    err = esp_event_handler_instance_register(WIFI_EVENT, WIFI_EVENT_ANY_ID, on_wifi_event, NULL,
+    err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL,
                                               &s_wifi_handler);
     if (err != ESP_OK) goto fail;
     err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_ip_event, NULL,

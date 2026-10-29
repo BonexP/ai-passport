@@ -228,7 +228,7 @@ typedef struct { esp_ip4_addr_t ip, netmask, gw; } esp_netif_ip_info_t;
 esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *info);
 char     *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len);
 
-#define WIFI_EVENT_ANY_ID           (-1)
+#define ESP_EVENT_ANY_ID            (-1)
 #define WIFI_EVENT_STA_CONNECTED    4
 #define WIFI_EVENT_STA_DISCONNECTED 5
 #define IP_EVENT                    "ip"
