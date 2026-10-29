@@ -73,6 +73,21 @@ Mechanism, using only built-in APIs:
 The state machine is pure logic and must be extracted into host-testable code, per upstream
 policy. This is the same pattern the `xiaonuo-jianlu` reference application uses.
 
+**Three hard boundaries for preset credentials (compile-time injection).** Preloading personal
+Wi-Fi networks so the device works out of the box, with provisioning as the fallback, is
+allowed, but only within these limits:
+
+- **Personal.** A preset may only be the developer's own network. Never commit the real
+  credentials of an employer, a university, a client, or anyone else, and never commit a
+  public network's account just because it is convenient for testing.
+- **Never in version control.** Values live in the local `sdkconfig`, which `.gitignore`
+  already excludes, and the Kconfig defaults stay empty. CI therefore builds firmware with no
+  presets at all, and those characters never exist in the repository.
+- **Not a security boundary.** Kconfig strings land in the firmware's `.rodata` as plaintext
+  and can be extracted from the device. A preset buys "no provisioning step", not "hidden
+  password"; protecting credentials requires NVS or Flash encryption, which this phase does
+  not do. Neither documentation nor UI may imply that a preset protects a password.
+
 ### 4.2 Weather: feasible, simplest network feature
 
 A single HTTPS GET returning a small JSON document (well under 10 KB), parsed with the
