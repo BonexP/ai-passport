@@ -52,6 +52,12 @@ static esp_err_t next_step(void) {
     return ESP_OK;
 }
 
+// 桩里的 WIFI_EVENT / IP_EVENT 是字符串字面量，直接比较指针会触发 -Waddress，
+// 所以按内容比。
+static bool is_wifi_base(esp_event_base_t base) {
+    return base != NULL && strcmp(base, WIFI_EVENT) == 0;
+}
+
 esp_netif_t *esp_netif_new(const esp_netif_config_t *cfg) {
     (void)cfg;
     assert(!s_netif_live);
@@ -127,7 +133,7 @@ esp_err_t esp_event_handler_instance_register(esp_event_base_t base, int32_t id,
     (void)id;
     esp_err_t result = next_step();
     if (result != ESP_OK) return result;
-    if (base == WIFI_EVENT) {
+    if (is_wifi_base(base)) {
         s_wifi_cb = callback;
         s_wifi_arg = arg;
         s_wifi_handler_live = true;
@@ -145,7 +151,7 @@ esp_err_t esp_event_handler_instance_unregister(esp_event_base_t base, int32_t i
                                                 esp_event_handler_instance_t instance) {
     (void)id;
     (void)instance;
-    if (base == WIFI_EVENT) {
+    if (is_wifi_base(base)) {
         s_wifi_cb = NULL;
         s_wifi_arg = NULL;
         s_wifi_handler_live = false;
