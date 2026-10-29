@@ -11,6 +11,9 @@ typedef struct {
     void (*key)(bsp_btn_t btn, bsp_btn_ev_t ev);  // lifecycle task 调用;函数自行缩短 LVGL 锁范围
     esp_err_t (*start)(void);                     // 可选:页面创建后,不持 LVGL 锁启动慢服务
     esp_err_t (*stop)(void);                      // 可选:删页面前,不持 LVGL 锁停止 producer
+    // 为 true 表示该页要独占无线资源：进入前停掉常驻 Wi-Fi 服务，退出后恢复。
+    // 只给吃堆的页面置位（NimBLE、音频、深睡），显示与按键页不需要。
+    bool radio_exclusive;
 } demo_entry_t;
 
 // 各演示页(定义在各自的 .c 里)
@@ -26,10 +29,6 @@ esp_err_t demo_audio_start(void); esp_err_t demo_audio_stop(void);
 
 void demo_battery_enter(void); void demo_battery_exit(void);
 void demo_battery_key(bsp_btn_t btn, bsp_btn_ev_t ev);
-
-void demo_wifi_enter(void);    void demo_wifi_exit(void);
-void demo_wifi_key(bsp_btn_t btn, bsp_btn_ev_t ev);
-esp_err_t demo_wifi_start(void); esp_err_t demo_wifi_stop(void);
 
 void demo_ble_enter(void);     void demo_ble_exit(void);
 void demo_ble_key(bsp_btn_t btn, bsp_btn_ev_t ev);

@@ -174,3 +174,103 @@ esp_err_t nimble_port_init(void);
 esp_err_t nimble_port_deinit(void);
 int nimble_port_stop(void);
 void nimble_port_run(void);
+
+/* ==== S2 追加：队列、临界区、NVS、netif/事件补充、LVGL 补充、观测 ==== */
+
+/* 错误码：IDF 真实值，wifi_profile_nvs.c 已经在用 INVALID_ARG。 */
+#define ESP_ERR_INVALID_ARG        0x102
+#define ESP_ERR_NVS_BASE           0x1100
+#define ESP_ERR_NVS_NOT_FOUND      (ESP_ERR_NVS_BASE + 0x02)
+#define ESP_ERR_NVS_INVALID_LENGTH (ESP_ERR_NVS_BASE + 0x06)
+
+/* ---- 队列 ---- */
+typedef struct test_queue *QueueHandle_t;
+QueueHandle_t xQueueCreate(unsigned depth, unsigned item_size);
+BaseType_t    xQueueSend(QueueHandle_t queue, const void *item, TickType_t ticks);
+BaseType_t    xQueueReceive(QueueHandle_t queue, void *item, TickType_t ticks);
+void          vQueueDelete(QueueHandle_t queue);
+extern bool test_queue_fails, test_queue_send_fails, test_queue_expire;
+/* worker 每次准备取下一个事件时回调一次：此时上一个事件已处理完、快照已发布。 */
+extern void (*test_queue_poll_hook)(void);
+
+/* ---- 临界区：用函数而非空宏，主机上才能断言成对 ---- */
+typedef struct { int unused; } portMUX_TYPE;
+#define portMUX_INITIALIZER_UNLOCKED { 0 }
+void test_port_enter(portMUX_TYPE *mux);
+void test_port_exit(portMUX_TYPE *mux);
+#define portENTER_CRITICAL(mux) test_port_enter(mux)
+#define portEXIT_CRITICAL(mux)  test_port_exit(mux)
+extern unsigned test_port_enters, test_port_exits;
+
+/* ---- NVS ---- */
+typedef uint32_t nvs_handle_t;
+#define NVS_READWRITE 0
+esp_err_t nvs_flash_init(void);
+esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *out);
+esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *buf, size_t *len);
+esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *buf, size_t len);
+esp_err_t nvs_commit(nvs_handle_t handle);
+void      nvs_close(nvs_handle_t handle);
+esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key);
+extern esp_err_t test_nvs_flash_result, test_nvs_open_result;
+extern bool test_nvs_write_fails;
+extern unsigned test_nvs_opens, test_nvs_closes, test_nvs_commits;
+void test_nvs_clear(void);
+void test_nvs_put(const char *key, const void *buf, size_t len);
+
+/* ---- netif / 事件 / wifi 补充 ---- */
+esp_err_t esp_netif_init(void);
+esp_err_t esp_event_loop_create_default(void);
+extern unsigned test_netif_inits, test_event_loop_creates;
+
+typedef struct { uint32_t addr; } esp_ip4_addr_t;
+typedef struct { esp_ip4_addr_t ip, netmask, gw; } esp_netif_ip_info_t;
+esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *info);
+char     *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len);
+
+#define WIFI_EVENT_ANY_ID           (-1)
+#define WIFI_EVENT_STA_CONNECTED    4
+#define WIFI_EVENT_STA_DISCONNECTED 5
+#define IP_EVENT                    "ip"
+#define IP_EVENT_STA_GOT_IP         0
+#define WIFI_IF_STA                 0
+
+typedef struct { uint8_t ssid[32]; uint8_t password[64]; } wifi_sta_config_t;
+typedef union { wifi_sta_config_t sta; } wifi_config_t;
+typedef struct { uint8_t reason; } wifi_event_sta_disconnected_t;
+esp_err_t esp_wifi_set_config(int iface, const wifi_config_t *cfg);
+esp_err_t esp_wifi_connect(void);
+esp_err_t esp_wifi_disconnect(void);
+esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap);
+
+/* ---- LVGL 补充（ui_product 需要；其余 20 项已在上面声明） ---- */
+#define LV_ALIGN_TOP_RIGHT 3
+#define LV_OBJ_FLAG_SCROLLABLE 0x0001
+extern const lv_font_t lv_font_montserrat_20;
+void lv_obj_set_pos(lv_obj_t *object, int x, int y);
+void lv_obj_remove_flag(lv_obj_t *object, int flag);
+void lv_obj_set_style_pad_all(lv_obj_t *object, int pad, int selector);
+void lv_obj_set_style_border_color(lv_obj_t *object, uint32_t color, int selector);
+
+/* ---- 测试观测 ---- */
+extern int64_t test_time_us;
+#define TEST_LABEL_LOG_DEPTH 16
+#define TEST_LABEL_LOG_WIDTH 64
+extern char test_label_log[TEST_LABEL_LOG_DEPTH][TEST_LABEL_LOG_WIDTH];
+extern unsigned test_label_writes;
+
+/* ---- STA 驱动假件的控制口（实现见 demo_wifi_stack.c） ---- */
+extern unsigned test_wifi_step, test_wifi_fail_at, test_wifi_destroys;
+extern esp_err_t test_wifi_fail_err, test_wifi_set_config_result, test_wifi_connect_result;
+extern wifi_config_t test_wifi_last_cfg;
+extern int8_t test_wifi_rssi;
+void test_wifi_stack_reset(void);
+bool test_wifi_stack_clean(void);
+void test_wifi_fire_connected(void);
+void test_wifi_fire_got_ip(void);
+void test_wifi_fire_disconnected(uint8_t reason);
+
+/* ---- 电量：状态页要读，host 测试可注入 ---- */
+extern int test_battery_soc;
+int bsp_battery_soc(void);
+int bsp_battery_mv(void);

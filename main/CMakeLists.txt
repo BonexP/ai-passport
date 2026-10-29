@@ -8,7 +8,7 @@ idf_component_register(
          "demo_audio.c"
          "demo_battery.c"
          "demo_radio.c"
-         "demo_wifi.c"
+
          "demo_ble.c"
          "demo_low_power.c"
          "wifi_profile.c"
@@ -20,6 +20,10 @@ idf_component_register(
          "wifi_provision_form.c"
          "wifi_provision_flow.c"
          "wifi_provision_html.c"
+         "wifi_status_shared.c"
+         "page_router.c"
+         "ui_product.c"
+         "page_status.c"
     INCLUDE_DIRS "."
     REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
 )

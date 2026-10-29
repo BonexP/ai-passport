@@ -21,6 +21,12 @@ struct test_ble_hs_cfg ble_hs_cfg;
 int test_nimble_deinit_result, test_nimble_stop_result, test_nimble_name_result;
 unsigned test_nimble_deinits, test_nimble_stops;
 const lv_font_t lv_font_montserrat_14 = { 0 };
+const lv_font_t lv_font_montserrat_20 = { 0 };
+
+// 页面测试要按顺序断言"最后 N 次写入"，单条 test_status 不够用。
+char test_label_log[TEST_LABEL_LOG_DEPTH][TEST_LABEL_LOG_WIDTH];
+unsigned test_label_writes;
+int64_t test_time_us;
 
 void test_log(const char *tag, const char *format, ...) { (void)tag; (void)format; }
 const char *esp_err_to_name(esp_err_t error) { (void)error; return "test error"; }
@@ -29,6 +35,14 @@ void bsp_lvgl_unlock(void) {}
 void lv_label_set_text(lv_obj_t *object, const char *text) {
     (void)object;
     snprintf(test_status, sizeof(test_status), "%s", text);
+    // 页面测试要看"最后 N 次写入的顺序"，单条 test_status 不够用。
+    char *slot = test_label_log[test_label_writes % TEST_LABEL_LOG_DEPTH];
+    size_t i = 0;
+    if (text != NULL) {
+        for (; text[i] != '\0' && i + 1 < TEST_LABEL_LOG_WIDTH; i++) slot[i] = text[i];
+    }
+    slot[i] = '\0';
+    test_label_writes++;
 }
 void bsp_display_backlight(uint8_t percent) { (void)percent; }
 
@@ -103,7 +117,7 @@ void esp_restart(void) {
     // deep-sleep routine, matching esp_restart()'s noreturn contract on device.
     vTaskSuspend(NULL);
 }
-int64_t esp_timer_get_time(void) { return 0; }
+int64_t esp_timer_get_time(void) { return test_time_us; }
 esp_err_t bsp_audio_sleep(void) { return ESP_OK; }
 esp_err_t bsp_audio_wake(void) { return ESP_OK; }
 esp_err_t bsp_audio_prepare_deep_sleep(void) { return ESP_OK; }
@@ -241,3 +255,241 @@ int ble_gap_adv_start(uint8_t address_type, const void *address, int duration,
     return 0;
 }
 int ble_gap_adv_stop(void) { return 0; }
+
+/* ==== S2 追加：队列 / 临界区 / NVS / netif 初始化 / LVGL 补充 ==== */
+
+/* ---- 队列 ---- */
+#define TEST_QUEUE_SLOTS 4
+#define TEST_QUEUE_DEPTH 8
+#define TEST_QUEUE_ITEM  8
+
+struct test_queue {
+    unsigned      depth;
+    unsigned      item_size;
+    unsigned      head;
+    unsigned      count;
+    bool          deleted;
+    unsigned char items[TEST_QUEUE_DEPTH][TEST_QUEUE_ITEM];
+};
+
+static struct test_queue test_queues[TEST_QUEUE_SLOTS];
+static unsigned          test_queue_count;
+bool                     test_queue_fails;
+bool                     test_queue_send_fails;
+bool                     test_queue_expire;
+void (*test_queue_poll_hook)(void);
+
+QueueHandle_t xQueueCreate(unsigned depth, unsigned item_size) {
+    if (test_queue_fails) return NULL;
+    assert(test_queue_count < TEST_QUEUE_SLOTS);
+    assert(depth <= TEST_QUEUE_DEPTH && item_size <= TEST_QUEUE_ITEM);
+    struct test_queue *q = &test_queues[test_queue_count++];
+    memset(q, 0, sizeof *q);
+    q->depth = depth;
+    q->item_size = item_size;
+    return q;
+}
+
+BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t ticks) {
+    (void)ticks;
+    assert(queue && !queue->deleted);
+    // 与 send_event() 的 0 超时语义一致：满就是丢，不能让测试出现"入队成功但真机会丢"。
+    if (test_queue_send_fails || queue->count >= queue->depth) return pdFALSE;
+    unsigned slot = (queue->head + queue->count) % queue->depth;
+    memcpy(queue->items[slot], item, queue->item_size);
+    queue->count++;
+    return pdTRUE;
+}
+
+BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t ticks) {
+    assert(queue && !queue->deleted);
+    // 主页面的定时器动作：此时上一条事件已处理完、快照已发布，测试可在此抓取。
+    if (test_current_task != NULL && test_queue_poll_hook != NULL) test_queue_poll_hook();
+
+    if (queue->count == 0) {
+        // 测试侧（没有停泊上下文）取空只能返回 FALSE。
+        if (test_current_task == NULL) return pdFALSE;
+        if (test_queue_expire && ticks != portMAX_DELAY) {
+            test_queue_expire = false;
+            return pdFALSE; // 模拟"等到超时"
+        }
+        // worker 取空 → 停泊，等价于 portMAX_DELAY 阻塞。
+        longjmp(test_worker_park, 1);
+    }
+
+    memcpy(item, queue->items[queue->head], queue->item_size);
+    queue->head = (queue->head + 1) % queue->depth;
+    queue->count--;
+    return pdTRUE;
+}
+
+void vQueueDelete(QueueHandle_t queue) {
+    assert(queue && !queue->deleted);
+    queue->deleted = true;
+}
+
+/* ---- 临界区 ---- */
+unsigned test_port_enters;
+unsigned test_port_exits;
+
+void test_port_enter(portMUX_TYPE *mux) {
+    (void)mux;
+    test_port_enters++;
+}
+
+void test_port_exit(portMUX_TYPE *mux) {
+    (void)mux;
+    test_port_exits++;
+}
+
+/* ---- NVS ---- */
+#define TEST_NVS_ENTRIES  16
+#define TEST_NVS_BLOB_MAX 160
+#define TEST_NVS_KEY_MAX  12
+
+struct test_nvs_entry {
+    bool          used;
+    char          key[TEST_NVS_KEY_MAX];
+    size_t        len;
+    unsigned char data[TEST_NVS_BLOB_MAX];
+};
+
+static struct test_nvs_entry test_nvs[TEST_NVS_ENTRIES];
+esp_err_t                    test_nvs_flash_result = ESP_OK;
+esp_err_t                    test_nvs_open_result = ESP_OK;
+bool                         test_nvs_write_fails;
+unsigned                     test_nvs_opens;
+unsigned                     test_nvs_closes;
+unsigned                     test_nvs_commits;
+
+static struct test_nvs_entry *test_nvs_find(const char *key) {
+    for (int i = 0; i < TEST_NVS_ENTRIES; i++) {
+        if (test_nvs[i].used && strcmp(test_nvs[i].key, key) == 0) return &test_nvs[i];
+    }
+    return NULL;
+}
+
+void test_nvs_clear(void) {
+    memset(test_nvs, 0, sizeof test_nvs);
+    test_nvs_flash_result = ESP_OK;
+    test_nvs_open_result = ESP_OK;
+    test_nvs_write_fails = false;
+    test_nvs_opens = test_nvs_closes = test_nvs_commits = 0;
+}
+
+void test_nvs_put(const char *key, const void *buf, size_t len) {
+    assert(strlen(key) < TEST_NVS_KEY_MAX);
+    assert(len <= TEST_NVS_BLOB_MAX);
+    struct test_nvs_entry *e = test_nvs_find(key);
+    if (e == NULL) {
+        for (int i = 0; i < TEST_NVS_ENTRIES; i++) {
+            if (!test_nvs[i].used) { e = &test_nvs[i]; break; }
+        }
+    }
+    assert(e != NULL);
+    e->used = true;
+    memcpy(e->key, key, strlen(key) + 1);
+    memcpy(e->data, buf, len);
+    e->len = len;
+}
+
+esp_err_t nvs_flash_init(void) { return test_nvs_flash_result; }
+
+esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *out) {
+    (void)name; (void)mode;
+    test_nvs_opens++;
+    if (test_nvs_open_result != ESP_OK) return test_nvs_open_result;
+    if (out != NULL) *out = 1;
+    return ESP_OK;
+}
+
+esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *buf, size_t *len) {
+    (void)handle;
+    assert(len != NULL);
+    struct test_nvs_entry *e = test_nvs_find(key);
+    if (e == NULL) return ESP_ERR_NVS_NOT_FOUND;
+    if (*len < e->len) {
+        *len = e->len; // 真 NVS 也是先回填所需长度再报错
+        return ESP_ERR_NVS_INVALID_LENGTH;
+    }
+    if (buf != NULL) memcpy(buf, e->data, e->len);
+    *len = e->len;
+    return ESP_OK;
+}
+
+esp_err_t nvs_set_blob(nvs_handle_t handle, const char *key, const void *buf, size_t len) {
+    (void)handle;
+    if (test_nvs_write_fails) return ESP_FAIL;
+    assert(len <= TEST_NVS_BLOB_MAX && strlen(key) < TEST_NVS_KEY_MAX);
+    struct test_nvs_entry *e = test_nvs_find(key);
+    if (e == NULL) {
+        for (int i = 0; i < TEST_NVS_ENTRIES; i++) {
+            if (!test_nvs[i].used) { e = &test_nvs[i]; break; }
+        }
+    }
+    if (e == NULL) return ESP_FAIL;
+    e->used = true;
+    memcpy(e->key, key, strlen(key) + 1);
+    memcpy(e->data, buf, len);
+    e->len = len;
+    return ESP_OK;
+}
+
+esp_err_t nvs_commit(nvs_handle_t handle) {
+    (void)handle;
+    test_nvs_commits++;
+    return test_nvs_write_fails ? ESP_FAIL : ESP_OK;
+}
+
+void nvs_close(nvs_handle_t handle) {
+    (void)handle;
+    test_nvs_closes++;
+}
+
+esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key) {
+    (void)handle;
+    struct test_nvs_entry *e = test_nvs_find(key);
+    if (e == NULL) return ESP_ERR_NVS_NOT_FOUND;
+    memset(e, 0, sizeof *e);
+    return ESP_OK;
+}
+
+/* ---- netif / 事件循环：进程级单例，第二次返回 INVALID_STATE ---- */
+unsigned test_netif_inits;
+unsigned test_event_loop_creates;
+
+esp_err_t esp_netif_init(void) {
+    test_netif_inits++;
+    return test_netif_inits == 1 ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t esp_event_loop_create_default(void) {
+    test_event_loop_creates++;
+    return test_event_loop_creates == 1 ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+char *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len) {
+    (void)addr;
+    if (buf != NULL && len > 0) {
+        const char *fallback = "192.168.1.7";
+        int i = 0;
+        for (; fallback[i] != '\0' && i + 1 < len; i++) buf[i] = fallback[i];
+        buf[i] = '\0';
+    }
+    return buf;
+}
+
+/* ---- LVGL 补充 ---- */
+void lv_obj_set_pos(lv_obj_t *object, int x, int y) { (void)object; (void)x; (void)y; }
+void lv_obj_remove_flag(lv_obj_t *object, int flag) { (void)object; (void)flag; }
+void lv_obj_set_style_pad_all(lv_obj_t *object, int pad, int selector) {
+    (void)object; (void)pad; (void)selector;
+}
+void lv_obj_set_style_border_color(lv_obj_t *object, uint32_t color, int selector) {
+    (void)object; (void)color; (void)selector;
+}
+
+/* ---- 电量 ---- */
+int test_battery_soc = 88;
+int bsp_battery_soc(void) { return test_battery_soc; }
+int bsp_battery_mv(void) { return 3900; }
