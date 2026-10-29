@@ -23,16 +23,17 @@
 | 安装 ESP-IDF 5.5.3 | 完成 | `. export.sh && idf.py --version` 输出 `ESP-IDF v5.5.3-dirty`，见 `development-environment.md` |
 | 安装仓库技能 | 完成 | `python3 tools/install_passport_skills.py --check` 报告五个全部可读 |
 | 未改动基线跑静态门禁 | 完成 | `./tools/validate.sh --static` 通过 |
-| 未改动基线跑固件构建 | 待办 | `./tools/validate.sh --firmware` 尚未执行 |
+| 未改动基线跑固件构建 | 完成 | CI `Firmware checks`（workflow_dispatch，`feature/my-custom`）通过，含合并镜像校验 |
 
-P0 剩下的就是首次固件构建。它必须在提交任何应用代码之前成功，这样后续的构建失败才能
-归因到我们的改动。
+P0 已全部完成。基线构建先于任何应用代码通过，所以后续的构建失败都能归因到我们的改动。
+本机没有 ESP-IDF，构建统一走 CI 的 `firmware-checks.yml`；`./tools/validate.sh --firmware`
+只在本机装了工具链时才有意义。
 
 ## 3. P1：Wi-Fi profile 管理器
 
 | 编号 | 任务 | 验收 |
 | --- | --- | --- |
-| P1.1 | 定义 profile 记录与 NVS schema：名称、SSID、密码、last_ok_time、active 索引 | Schema 写在头文件注释里；用桩键值存储在主机上做往返测试 |
+| P1.1 | 定义 profile 记录与 NVS schema：名称、SSID、密码、active 索引 | Schema 写在头文件注释里；用桩键值存储在主机上做往返测试 |
 | P1.2 | profile 存储模块，可主机测试，逻辑层不调 ESP-IDF | 增、改、删、列、选活跃五项都有主机测试 |
 | P1.3 | 开机连接状态机：先试活跃项，失败按列表遍历并设单条超时，全失败进配网态 | 主机测试覆盖全部成功、中途成功、全部失败、超时四条路径 |
 | P1.4 | 断线处理：重跑整个遍历，而不是只重试上一个 SSID | 转移有主机测试；真机行为在实测前记为 Unverified |

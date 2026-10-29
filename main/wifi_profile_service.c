@@ -73,22 +73,13 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     send_event(SVC_EV_GOT_IP);
 }
 
-// 把成功后序号推到全库最大 + 1，并落盘。没有 RTC，用序号而不是时间戳，
-// 这样"最近用过哪个网络"的排名跨重启依然成立。
+// 连上之后把这条记为 active 并落盘，下次开机先试它。
+//
+// 只记"哪个连上了"，不记"什么时候连上的"：状态机唯一需要的输入就是 active，
+// 而设备没有 RTC，时间戳跨重启没有意义。多存一个没人读的字段只会让人误以为
+// 存在按新鲜度排序的逻辑。
 static void promote_active(int8_t index) {
-    const wifi_profile_t *current = wifi_profile_store_at(&s_store, (uint8_t)index);
-    if (current == NULL) return;
-
-    uint32_t max_seq = 0;
-    uint8_t count = wifi_profile_store_count(&s_store);
-    for (uint8_t i = 0; i < count; i++) {
-        const wifi_profile_t *p = wifi_profile_store_at(&s_store, i);
-        if (p != NULL && p->last_ok_seq > max_seq) max_seq = p->last_ok_seq;
-    }
-
-    wifi_profile_t updated = *current;
-    updated.last_ok_seq = max_seq + 1;
-    if (wifi_profile_store_update(&s_store, (uint8_t)index, &updated) != WIFI_PROFILE_OK) return;
+    if (wifi_profile_store_at(&s_store, (uint8_t)index) == NULL) return;
     if (wifi_profile_store_set_active(&s_store, index) != WIFI_PROFILE_OK) return;
     if (wifi_profile_store_save(&s_store) != WIFI_PROFILE_OK) {
         ESP_LOGW(TAG, "profile 写入 NVS 失败，本次选择只在内存里生效");

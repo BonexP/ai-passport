@@ -26,16 +26,18 @@ be taken on a topic branch and reviewed on its own.
 | Install ESP-IDF 5.5.3 | done | `. export.sh && idf.py --version` reports `ESP-IDF v5.5.3-dirty`, see `development-environment.md` |
 | Install repository skills | done | `python3 tools/install_passport_skills.py --check` reports all five readable |
 | Static gate on untouched baseline | done | `./tools/validate.sh --static` passes |
-| Firmware build on untouched baseline | pending | `./tools/validate.sh --firmware` has not been run yet |
+| Firmware build on untouched baseline | done | CI `Firmware checks` (workflow_dispatch on `feature/my-custom`) passes, merged-image verification included |
 
-The remaining P0 item is the first firmware build. It must succeed before any application
-code is committed, so that later build failures can be attributed to our changes.
+P0 is complete. The baseline build went green before any application code, so later build
+failures can be attributed to our changes. The development machine has no ESP-IDF, so builds
+go through CI's `firmware-checks.yml`; `./tools/validate.sh --firmware` only applies where a
+local toolchain exists.
 
 ## 3. P1: Wi-Fi profile manager
 
 | ID | Task | Acceptance |
 | --- | --- | --- |
-| P1.1 | Define the profile record and NVS schema: name, ssid, password, last_ok_time, active index | Schema documented in a header comment; round-trip unit test on the host with a stub key-value store |
+| P1.1 | Define the profile record and NVS schema: name, ssid, password, active index | Schema documented in a header comment; round-trip unit test on the host with a stub key-value store |
 | P1.2 | Profile store module, host-testable, no ESP-IDF calls in the logic layer | Add, update, delete, list, select-active all covered by host tests |
 | P1.3 | Boot connection state machine: try active, then iterate with per-profile timeout, then provisioning state | Host tests cover all-success, mid-list success, all-fail, and timeout paths |
 | P1.4 | Disconnect handling: re-run the full iteration instead of retrying the last SSID | Host test for the transition; device behaviour listed as Unverified until measured |
