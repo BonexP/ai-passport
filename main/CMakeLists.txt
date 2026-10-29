@@ -15,6 +15,7 @@ idf_component_register(
          "wifi_connect_policy.c"
          "wifi_profile_nvs.c"
          "wifi_profile_service.c"
+         "wifi_presets.c"
     INCLUDE_DIRS "."
     REQUIRES bsp bt esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
 )

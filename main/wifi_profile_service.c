@@ -18,6 +18,7 @@
 #include "freertos/task.h"
 
 #include "wifi_connect_policy.h"
+#include "wifi_presets.h"
 #include "wifi_profile.h"
 #include "wifi_profile_nvs.h"
 
@@ -208,6 +209,24 @@ esp_err_t wifi_profile_service_start(void) {
     wifi_kv_t kv = wifi_profile_nvs_kv(&s_nvs);
     if (wifi_profile_store_load(&s_store, &kv) != WIFI_PROFILE_OK) {
         ESP_LOGW(TAG, "profile 读取失败，按空库处理");
+    }
+
+    // 预设注入放在 load 之后、netif 与驱动初始化之前：worker 在第一次
+    // WIFI_CONN_EV_START 时就会读 store，这里必须先让 store 定型。
+    // 不写 `if (count == 0)` 守卫：策略属于已被主机测试覆盖的 wifi_presets.c，
+    // 这一层只负责把四种结果翻成日志。
+    wifi_preset_seed_report_t seed = { .added = 0, .skipped = 0 };
+    switch (wifi_preset_seed_builtin(&s_store, &seed)) {
+    case WIFI_PRESET_SEED_APPLIED:
+        ESP_LOGI(TAG, "注入预设 %u 条（跳过 %u 条）", (unsigned)seed.added,
+                 (unsigned)seed.skipped);
+        break;
+    case WIFI_PRESET_SEED_ERR_SAVE:
+        ESP_LOGW(TAG, "预设已进内存但未落盘：本次开机可用，下次开机重试");
+        break;
+    case WIFI_PRESET_SEED_LIBRARY_NOT_EMPTY:
+    case WIFI_PRESET_SEED_NOTHING_TO_ADD:
+        break; // 正常路径，不刷日志
     }
 
     // 默认事件循环通常已由 demo_radio 建好；重复创建返回 INVALID_STATE 属正常。
