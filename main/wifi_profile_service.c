@@ -365,6 +365,8 @@ esp_err_t wifi_profile_service_start(void) {
     esp_err_t err = wifi_profile_nvs_open(&s_nvs);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS 初始化失败: %s；本次按无 profile 处理", esp_err_to_name(err));
+        // 服务没起来也必须让状态页知道：否则它会永远停在 "Starting Wi-Fi..."。
+        publish_simple(WIFI_PHASE_ERROR, WIFI_FAIL_DRIVER);
         return err;
     }
     wifi_kv_t kv = wifi_profile_nvs_kv(&s_nvs);
