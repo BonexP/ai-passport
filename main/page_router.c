@@ -23,6 +23,7 @@ route_action_t page_router_resolve(page_id_t page, demo_nav_input_t input) {
         case DEMO_NAV_INPUT_OK_CLICK:
             return ROUTE_MENU_ENTER;
         case DEMO_NAV_INPUT_OTHER:
+        case DEMO_NAV_INPUT_UP_LONG: // 配网入口只在状态页，菜单里长按 UP 不算数
             return ROUTE_IGNORE;
         }
         return ROUTE_IGNORE;
