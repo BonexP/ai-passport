@@ -259,7 +259,7 @@ int ble_gap_adv_stop(void) { return 0; }
 /* ==== S2 追加：队列 / 临界区 / NVS / netif 初始化 / LVGL 补充 ==== */
 
 /* ---- 队列 ---- */
-#define TEST_QUEUE_SLOTS 4
+#define TEST_QUEUE_SLOTS 16
 #define TEST_QUEUE_DEPTH 8
 #define TEST_QUEUE_ITEM  8
 

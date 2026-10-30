@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h> /* ssize_t：httpd 假件的签名要与 IDF 一致 */
 
 typedef int esp_err_t;
 #define ESP_OK 0
@@ -11,6 +12,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NO_MEM 0x101
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_TIMEOUT 0x107
+#define ESP_ERR_NOT_FOUND 0x105
 const char *esp_err_to_name(esp_err_t error);
 void test_log(const char *tag, const char *format, ...);
 #define ESP_LOGE(...) test_log(__VA_ARGS__)
@@ -333,3 +335,90 @@ void test_wifi_fire_ap_ipassigned(void);
 /* 任务/信号量池跨用例只增不减，必须显式清零。 */
 void test_task_reset(void);
 void test_sem_reset(void);
+
+/* ==== S3：esp_http_server 桩面（IDF 名逐字一致；值待固件构建核对） ==== */
+
+typedef void *httpd_handle_t;
+typedef enum { HTTP_ANY = 1, HTTP_GET = 2, HTTP_POST = 4 } httpd_method_t;
+
+typedef enum {
+    HTTPD_400_BAD_REQUEST = 0,
+    HTTPD_408_REQ_TIMEOUT,
+    HTTPD_411_LENGTH_REQUIRED,
+    HTTPD_413_CONTENT_TOO_LARGE,
+    HTTPD_500_INTERNAL_SERVER_ERROR,
+} httpd_err_code_t;
+
+typedef struct httpd_req {
+    httpd_handle_t handle;
+    httpd_method_t method;
+    void          *user_ctx;
+    size_t         content_len; /* 名字与类型都必须与 IDF 一致 */
+} httpd_req_t;
+
+typedef struct {
+    const char      *uri;
+    httpd_method_t   method;
+    esp_err_t      (*handler)(httpd_req_t *r);
+    void            *user_ctx;
+} httpd_uri_t;
+
+typedef struct {
+    unsigned task_priority;
+    size_t   stack_size;
+    int      core_id;
+    uint16_t server_port;
+    uint16_t ctrl_port;
+    uint16_t max_open_sockets;
+    uint16_t max_uri_handlers;
+    uint16_t max_resp_headers;
+    uint16_t backlog_conn;
+    bool     lru_purge_enable;
+    uint16_t recv_wait_timeout;
+    uint16_t send_wait_timeout;
+} httpd_config_t;
+
+#define HTTPD_DEFAULT_CONFIG()                     \
+    {                                              \
+        .task_priority = 5, .stack_size = 4096,    \
+        .core_id = 0, .server_port = 80,           \
+        .ctrl_port = 32768, .max_open_sockets = 7, \
+        .max_uri_handlers = 8, .max_resp_headers = 8, \
+        .backlog_conn = 5, .lru_purge_enable = false, \
+        .recv_wait_timeout = 5, .send_wait_timeout = 5, \
+    }
+
+#define HTTPD_RESP_USE_STRLEN (-1)
+#define HTTPD_SOCK_ERR_FAIL (-1)
+#define HTTPD_SOCK_ERR_INVALID (-2)
+#define HTTPD_SOCK_ERR_TIMEOUT (-3)
+
+esp_err_t httpd_start(httpd_handle_t *handle, const httpd_config_t *config);
+esp_err_t httpd_stop(httpd_handle_t handle);
+esp_err_t httpd_register_uri_handler(httpd_handle_t handle, const httpd_uri_t *uri);
+esp_err_t httpd_unregister_uri_handler(httpd_handle_t handle, const char *uri,
+                                       httpd_method_t method);
+esp_err_t httpd_resp_send(httpd_req_t *req, const char *buf, ssize_t buf_len);
+esp_err_t httpd_resp_send_err(httpd_req_t *req, httpd_err_code_t error, const char *msg);
+esp_err_t httpd_resp_set_status(httpd_req_t *req, const char *status);
+esp_err_t httpd_resp_set_type(httpd_req_t *req, const char *type);
+int       httpd_req_recv(httpd_req_t *req, char *buf, size_t buf_len);
+size_t    httpd_req_get_hdr_value_len(httpd_req_t *req, const char *field);
+esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *req, const char *field, char *val,
+                                      size_t val_size);
+
+/* ---- 观测与注入 ---- */
+#define TEST_HTTPD_URI_SLOTS 4
+#define TEST_HTTPD_BODY_MAX  1024
+extern httpd_uri_t test_httpd_uris[TEST_HTTPD_URI_SLOTS];
+extern unsigned    test_httpd_uri_count;
+extern unsigned    test_httpd_starts, test_httpd_stops, test_httpd_sends,
+                   test_httpd_send_errs, test_httpd_recv_calls, test_httpd_recv_timeout_at;
+extern char        test_httpd_last_status[32];
+extern char        test_httpd_last_type[48];
+extern char        test_httpd_last_body[TEST_HTTPD_BODY_MAX];
+extern size_t      test_httpd_last_len;
+void        test_httpd_reset(void);
+/* content_length 传 NULL 表示请求里没有 Content-Length 头。 */
+void        test_httpd_set_request(const char *body, size_t len, const char *content_length);
+httpd_req_t *test_httpd_req(void);

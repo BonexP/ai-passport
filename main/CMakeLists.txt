@@ -16,6 +16,7 @@ idf_component_register(
          "wifi_profile_nvs.c"
          "wifi_profile_service.c"
          "wifi_presets.c"
+         "wifi_radio_owner.c"
          "wifi_status.c"
          "wifi_provision_form.c"
          "wifi_provision_flow.c"
