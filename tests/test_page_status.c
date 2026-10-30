@@ -42,9 +42,9 @@ static void test_build_shows_the_placeholder_before_any_publish(void) {
     // build 会先创建控件（页眉 2 次 + 文本 9 次），最后一帧渲染固定 7 次。
     // 这里只保证"渲染发生了"，具体文案由下面按顺序断言。
     assert(test_label_writes >= 8);
-    assert(strcmp(label_from_end(8), "Starting Wi-Fi...") == 0);
-    assert(strcmp(label_from_end(3), "Hold OK: menu") == 0);
-    assert(strcmp(label_from_end(2), "88%") == 0);
+    assert(strcmp(label_from_end(7), "Starting Wi-Fi...") == 0);
+    assert(strcmp(label_from_end(2), "Hold OK: menu") == 0);
+    assert(strcmp(label_from_end(1), "88%") == 0);
 }
 
 static void test_connected_snapshot_fills_every_row(void) {
@@ -53,13 +53,13 @@ static void test_connected_snapshot_fills_every_row(void) {
     unsigned before = test_label_writes;
     status_page_refresh();
     assert(test_label_writes == before + 8);
-    assert(strcmp(label_from_end(8), "Connected: home-net") == 0);
-    assert(strcmp(label_from_end(7), "IP 192.168.1.7") == 0);
-    assert(strcmp(label_from_end(6), "192.168.1.7") == 0);
-    assert(strcmp(label_from_end(5), "1 saved") == 0);
-    assert(strcmp(label_from_end(4), "-55 dBm") == 0);
-    assert(strcmp(label_from_end(3), "Hold OK: menu") == 0);
-    assert(strcmp(label_from_end(2), "88%") == 0);
+    assert(strcmp(label_from_end(7), "Connected: home-net") == 0);
+    assert(strcmp(label_from_end(6), "IP 192.168.1.7") == 0);
+    assert(strcmp(label_from_end(5), "192.168.1.7") == 0);
+    assert(strcmp(label_from_end(4), "1 saved") == 0);
+    assert(strcmp(label_from_end(3), "-55 dBm") == 0);
+    assert(strcmp(label_from_end(2), "Hold OK: menu") == 0);
+    assert(strcmp(label_from_end(1), "88%") == 0);
 }
 
 static void test_tick_skips_an_unchanged_snapshot(void) {
@@ -71,12 +71,12 @@ static void test_tick_skips_an_unchanged_snapshot(void) {
 static void test_failure_reason_is_named_on_the_detail_row(void) {
     publish_snapshot(WIFI_PHASE_ALL_FAILED, -128, "", "", WIFI_FAIL_AUTH, 2);
     status_page_refresh();
-    assert(strcmp(label_from_end(8), "No connection") == 0);
-    assert(strcmp(label_from_end(7), "Wrong password") == 0);
+    assert(strcmp(label_from_end(7), "No connection") == 0);
+    assert(strcmp(label_from_end(6), "Wrong password") == 0);
 
     publish_snapshot(WIFI_PHASE_ALL_FAILED, -128, "", "", WIFI_FAIL_NO_AP, 2);
     status_page_refresh();
-    assert(strcmp(label_from_end(7), "Network not found") == 0);
+    assert(strcmp(label_from_end(6), "Network not found") == 0);
 }
 
 static void test_long_ssid_is_clamped_to_two_lines(void) {
@@ -87,7 +87,7 @@ static void test_long_ssid_is_clamped_to_two_lines(void) {
     publish_snapshot(WIFI_PHASE_CONNECTED, -60, ssid, "10.0.0.2", WIFI_FAIL_NONE, 1);
     status_page_refresh();
 
-    const char *headline = label_from_end(8);
+    const char *headline = label_from_end(7);
     // "Connected: " 11 字符 + 20 字符（含结尾三个点）= 31
     assert(strlen(headline) == 31);
     assert(strstr(headline, "...") != NULL);
@@ -96,10 +96,10 @@ static void test_long_ssid_is_clamped_to_two_lines(void) {
 static void test_unknown_rssi_and_ip_render_as_dash(void) {
     publish_snapshot(WIFI_PHASE_CONNECTING, -128, "shop", "", WIFI_FAIL_NONE, 3);
     status_page_refresh();
-    assert(strcmp(label_from_end(8), "Connecting: shop") == 0);
-    assert(strcmp(label_from_end(7), "Profile 1 of 3") == 0);
-    assert(strcmp(label_from_end(6), "-") == 0); // IP 未知
-    assert(strcmp(label_from_end(4), "-") == 0); // RSSI 未知
+    assert(strcmp(label_from_end(7), "Connecting: shop") == 0);
+    assert(strcmp(label_from_end(6), "Profile 1 of 3") == 0);
+    assert(strcmp(label_from_end(5), "-") == 0); // IP 未知
+    assert(strcmp(label_from_end(3), "-") == 0); // RSSI 未知
 }
 
 static void test_destroy_stops_everything(void) {
@@ -121,17 +121,17 @@ static void test_destroy_stops_everything(void) {
 static void test_battery_text_degrades_to_dashes(void) {
     test_battery_soc = -1;
     status_page_build();
-    assert(strcmp(label_from_end(2), "--%") == 0);
+    assert(strcmp(label_from_end(1), "--%") == 0);
     status_page_destroy();
 
     test_battery_soc = 5;
     status_page_build();
-    assert(strcmp(label_from_end(2), "5%") == 0);
+    assert(strcmp(label_from_end(1), "5%") == 0);
     status_page_destroy();
 
     test_battery_soc = 100;
     status_page_build();
-    assert(strcmp(label_from_end(2), "100%") == 0);
+    assert(strcmp(label_from_end(1), "100%") == 0);
     status_page_destroy();
 }
 
