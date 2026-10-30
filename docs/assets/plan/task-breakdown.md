@@ -4,7 +4,7 @@
 
 # Task Breakdown
 
-Planning only. No application code exists yet. This file decomposes the phases in
+P1.1-P1.10 are implemented and covered by host tests; provisioning has not been measured on hardware. This file decomposes the phases in
 `project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each task can
 be taken on a topic branch and reviewed on its own.
 
@@ -45,8 +45,8 @@ local toolchain exists.
 | P1.6 | Provisioning path decision: **SoftAP** (on-board hotspot plus a web form), no Bluetooth and no companion mini-program | Done; decision recorded in `project-plan.md` section 4.1, implementation split into P1.9 and P1.10 |
 | P1.7 | Status page UI, redesigned rather than copied from a demo | Own layout and key handling described in the delivery report; screen result marked Unverified until seen on the device |
 | P1.8 | Preset credential seeding: `main/wifi_presets.local.h` (commit the ignore entry before the file exists) with the `__has_include` fallback in `main/wifi_presets.c`; `add` then `save` when the store is empty | Five host cases: empty-store seeding, non-empty store untouched, zero presets writing no key at all, invalid entries skipped one by one, and a failed save kept in RAM that recovers on the next boot; CI firmware carries no presets |
-| P1.9 | SoftAP provisioning service: hotspot, minimal HTTP form, APSTA check that the STA association really works before writing NVS | Form accepts input; a wrong password is visible in the page; success reboots and connects; no captive portal. Device result Unverified until measured |
-| P1.10 | Mode switch and entry point between provisioning and networking: stop service, start provisioning, save, reboot, start service | No residue after the switch (driver, netif and event handlers all unregistered); entry gesture and timeout exit described in the delivery report |
+| P1.9 | SoftAP provisioning service: open hotspot, minimal HTTP form, save then reboot | Form accepts input; malformed input gets an error page and writes nothing; a successful save answers before rebooting; no APSTA pre-check, so a wrong password shows up on the status page after the reboot; no captive portal. Device result Unverified until measured |
+| P1.10 | Mode switch and entry point between provisioning and networking: hold UP on the status page to start provisioning, leave with a long press on OK or after five idle minutes, then restore the service | No residue after the switch (driver, netif and event handlers all unregistered); entry gesture and timeout exit described in the delivery report |
 
 Notes: the state machine from P1.3 is the piece upstream policy most wants under host test.
 Provisioning (P1.6) is deliberately separated because provisioning and networking are two
@@ -93,8 +93,9 @@ note rather than left implicit:
 1. Weather provider: keyed free tier in NVS or keyless endpoint (blocks P2.3).
 2. Stock provider: keyless endpoint or keyed API (blocks P3.2).
 3. ~~Provisioning transport for P1.6~~ - settled: **SoftAP**, no Bluetooth, no mini-program
-   (2026-10-29, see `project-plan.md` section 4.1). What remains open is how provisioning is
-   entered (`project-plan.md` section 9, item 5).
+   (2026-10-29, see `project-plan.md` section 4.1). ~~How provisioning is entered~~ is settled
+   too: hold UP on the status page; leave with a long press on OK or after five idle minutes
+   (`project-plan.md` section 9, item 5).
 4. Audio: excluded this cycle; revisiting it invalidates the current memory budget.
 5. Endpoint probe list contents for P2.5.
 

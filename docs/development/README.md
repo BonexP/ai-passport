@@ -19,7 +19,7 @@ This directory contains AI Passport engineering rules and reusable workflows, gr
 - [firmware-layout.md](engineering/firmware-layout.md): default and user-defined partition layouts and merged-artifact validation.
 - [coding-conventions.md](engineering/coding-conventions.md): source-code and resource conventions, including Chinese font integration, blank/boxed text troubleshooting, and display acceptance.
 - [lvgl-chinese-fonts.md](engineering/lvgl-chinese-fonts.md): step-by-step CJK configuration, font generation/linking, fallback examples, glyph checks, and troubleshooting.
-- [wifi-provisioning.md](engineering/wifi-provisioning.md): Bluetooth-based Wi-Fi setup using the BLUFI reference branch, the companion mini program, and integration checks.
+- [wifi-provisioning.md](engineering/wifi-provisioning.md): this firmware's SoftAP provisioning (entry, timeout, HTTP input boundaries, teardown order and acceptance), with the upstream Bluetooth flow kept as history.
 
 ## CI
 

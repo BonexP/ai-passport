@@ -2,51 +2,81 @@
   <strong>简体中文</strong> · <a href="wifi-provisioning.md">English</a>
 </p>
 
-# 通过蓝牙配网连接 Wi-Fi
+# Wi-Fi 配网
 
-当用户需要设备通过 Wi-Fi 连接网络时，可以参考
-[`demo/blufi-provisioning` 分支](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)
-的代码实现蓝牙配网。手机通过 BLE 上的 BLUFI 协议发送 Wi-Fi 名称（SSID）和
-密码，设备以 Wi-Fi STA 模式连接网络并回报连接状态。蓝牙用于传递配网信息，
-不是承载应用的互联网流量。
+本仓库自己实现了一套 SoftAP 配网流程。上游的蓝牙（BLUFI）流程作为历史参考保留在文末。
 
-这是可选的应用参考。当前 `main` 的 Wi-Fi demo 仅扫描网络，并未实现联网或
-蓝牙配网；没有联网需求的应用不必启用网络功能。
+## 本固件的做法
+
+- **入口**：在状态页长按 UP。状态页本身就写着 `No networks` 与提示行，不需要查文档也能发现。
+- **热点**：开放（`WIFI_AUTH_OPEN`），信道 1，单客户端，名字取 SoftAP MAC 的后两字节，
+  形如 `Passport-XXXX`。
+- **地址**：`192.168.4.1`，直接印在屏幕上。不做弹窗认证，所以手机需要手动打开
+  `http://192.168.4.1`。
+- **提交**：SSID 与密码以 `application/x-www-form-urlencoded` 提交。
+- **结果**：表单合法即写入 NVS，并把新记录设为 active；设备先回应请求，再重启，由开机遍历
+  验证。**没有 APSTA 预验证**，所以密码错误要等重启后的状态页才看得出来，而不是在网页上。
+- **退出**：长按 OK，或 5 分钟无提交（`WIFI_PROV_TIMEOUT_MS`）。两条路径都会恢复常驻联网服务。
+
+## 实现地图
+
+| 文件 | 职责 |
+| --- | --- |
+| `main/wifi_provision_service.c` | AP netif、`esp_http_server`、两个 handler、worker、重启 |
+| `main/wifi_provision_flow.c` | 会话状态机；纯逻辑，有主机测试 |
+| `main/wifi_provision_form.c` | urlencoded 正文与 `Content-Length` 解析 |
+| `main/wifi_provision_html.c` | 静态表单页与结果页 |
+| `main/wifi_radio_owner.c` | 射频持有者：联网或配网，二选一 |
+| `main/page_status.c` | 渲染 `Setup: <ssid>`、`Open <ip>` 与客户端数 |
+
+## HTTP 输入边界
+
+- `Content-Length` 必须存在且为纯数字；超过 `WIFI_PROV_BODY_MAX`（1024）时**一个字节正文都
+  不读**，直接 413。
+- 正文在有界循环里接收，超时最多重试两次；收到的字节数不足声明长度按失败处理，绝不"部分解析"。
+- 表单畸形返回错误页，**不写 NVS**。
+- profile 库满时保存失败，**不删除任何既有记录**：丢掉一条能用的网络比这次没存上更糟。
+
+## 清理顺序
+
+先 `httpd_stop()`（它会 join httpd 任务），再注销 Wi-Fi 与 IP 事件处理器，然后 stop 与 deinit
+驱动，接着销毁 netif，再关闭 NVS，最后释放射频持有。任何一步反过来都会留下指向已释放内存的
+socket 或回调。
+
+## 验收
+
+自动化：`./tools/validate.sh --static` 覆盖状态机、两个解析器、页面生成与服务生命周期，
+包括启动那 13 个步骤的逐步骤回滚，以及两个 HTTP handler 的行为。
+
+以下项目**均未上板实测**，在交付报告里都属于 `Unverified`：
+
+- 热点在 Android 与 iOS 上的可见性，以及 `Passport-XXXX` 这个名字；
+- 手动打开 `192.168.4.1`（含系统"无互联网"提示）；
+- `WIFI_EVENT_AP_STACONNECTED` 与 `IP_EVENT_AP_STAIPASSIGNED` 两条事件是否都出现；
+- 启动前、AP 起来后、httpd 起来后、手机连上后四个时间点的 free heap 与最大连续块；
+- 重启后能否连上刚提交的网络；
+- 5 分钟超时后射频是否真的交还给常驻服务；
+- 连续 10 次进出后 socket、任务与堆是否回到基线。
+
+## 上游蓝牙配网参考（历史）
+
+上游用 BLE + BLUFI 配网，代码在
+[`demo/blufi-provisioning` 分支](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)。
+本仓库不用它：它要多背一个 NimBLE 栈，还需要手机 App 或小程序，而三键加小屏已经足够显示
+热点名与地址。
 
 <a id="mini-program-name"></a>
-
 ## 小程序名称
 
-配套小程序的准确名称为：**蓝牙配网-FoloToy AI PASSPORT**。
-
-向用户说明或搜索小程序时，请使用上述完整名称，不要自行翻译或改写。
-这是小程序名称，不是设备的蓝牙广播名；参考固件的广播名为
+配套小程序的准确名称为：**蓝牙配网-FoloToy AI PASSPORT**。写说明时请原样保留这个名字，
+不要自创译名或搜索词。它是小程序的名字，不是设备的 BLE 广播名；参考固件广播为
 `BLUFI_FoloPassport`。
 
-预期流程：设备进入配网状态，手机打开蓝牙并授予所需权限，打开该小程序，
-选择目标设备，提供 2.4 GHz Wi-Fi 的名称和密码。确认设备取得 IP 地址后，
-再验证应用实际需要的网络请求；仅蓝牙连接成功不能证明能够访问互联网。
+### 代码参考入口
 
-## 代码参考入口
+- [`main/demo_blufi.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_blufi.c)
+- [`main/demo_blufi_security.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_blufi_security.c)
+- [`main/demo_radio.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_radio.c)
 
-- [`main/demo_blufi.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_blufi.c)：BLUFI 回调、Wi-Fi 扫描与连接、凭据处理、状态回报和生命周期。
-- [`main/demo_blufi_security.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_blufi_security.c) 及其头文件：BLUFI 安全协商回调，提取示例时不要丢弃这些逻辑。
-- [`main/demo_radio.c`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/demo_radio.c)：NVS、`esp_netif` 和默认事件循环的共享初始化。
-- [`main/CMakeLists.txt`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/main/CMakeLists.txt) 和 [`sdkconfig.defaults`](https://github.com/FoloToy/ai-passport/blob/demo/blufi-provisioning/sdkconfig.defaults)：源文件注册、依赖、NimBLE/BLUFI 和加密配置。不能只复制单个 C 文件就认为完成接入。
-
-## 接入与验收
-
-从应用当前基线出发，记录参考提交，仅移植适用的联网逻辑。不要直接合并整个
-demo，也不要用该分支的旧版 BSP、分区表或配置覆盖当前版本。重新实现应用
-自己的界面，将配网状态、任务及 Wi-Fi/BLE 服务放在应用层。
-
-明确配网入口与退出、超时、重试上限、凭据持久化及主动清除凭据的方式。
-禁止记录或提交 Wi-Fi 密码。保留 LVGL 锁、非阻塞回调、任务与事件处理器清理
-机制，并评估 Wi-Fi、BLE 和 UI 同时运行的内部 RAM 占用。示例不等于完整的
-生产环境授权或安全设计。
-
-运行[验证门禁](build-and-test.zh_CN.md)，再遵循
-[真机测试交接流程](../ai-guide.zh_CN.md#主动询问真机测试)。使用上述小程序
-验证：发现设备、成功配网、密码错误与网络不可用、重连与重启、清除凭据、
-反复进入退出配网，以及应用实际需要的网络请求。编译成功不能证明小程序
-兼容性或实机联网正常；未执行的检查列入 `Unverified`。
+`demo_radio.c` 里 NVS、`esp_netif` 与默认事件循环的初始化值得一读，即使做的是 SoftAP 配网
+——这几项服务两条路径都要用。

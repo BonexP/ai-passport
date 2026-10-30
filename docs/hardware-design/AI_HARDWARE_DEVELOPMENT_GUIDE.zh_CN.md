@@ -103,7 +103,7 @@ app_main
        ├─ Button demo
        ├─ Audio demo
        ├─ Battery demo
-       ├─ Wi-Fi scan demo
+       ├─ Wi-Fi 状态页（常驻 STA 服务 + 长按 UP 配网）
        ├─ Bluetooth LE advertising demo
        └─ Low Power sleep-mode demo
 ```

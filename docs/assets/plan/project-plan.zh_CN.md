@@ -5,7 +5,7 @@
 # 项目规划：FoloToy AI Passport 集大成固件
 
 范围：基于 `FoloToy/ai-passport` 基线（ESP-IDF 5.5.3）的自定义固件。
-状态：规划中，尚无应用代码。
+状态：P1 进行中。存储、开机遍历、状态页、预设注入与 SoftAP 配网均已实现，主机测试与固件构建通过；配网尚未上板实测。
 调研日期：2026-10-27，对应上游 `main` 提交 `006c227`。
 
 结论先行：功能集在不依赖任何外部辅助服务的前提下可行。唯一的硬约束是内存——本板
@@ -35,7 +35,7 @@
 | 屏幕 | ST7789 240×320 竖屏 RGB565，LVGL 9，24 KB 池 + 单个 9.6 KB DMA 缓冲 | 一屏行情放得下；不能双缓冲，不能大图 |
 | 按键 | UP / DOWN / OK 共享 GPIO0 ADC 电阻梯 | 回调不得阻塞；网络工作放 worker 任务 |
 | 音频 | ES8311 I2S 全双工，demo 录音缓冲约 96 KB | 音频与全量联网不能同时常驻 |
-| 无线 | Wi-Fi 2.4G STA 与 NimBLE 同芯片，但 RAM 预算不允许同开 | 联网（STA）与配网（SoftAP/APSTA）是两个模式，不同时运行；配网全程不启用蓝牙 |
+| 无线 | Wi-Fi 2.4G STA 与 NimBLE 同芯片，但 RAM 预算不允许同开 | 联网（STA）与配网（SoftAP）是两个模式，不同时运行，由 `wifi_radio_owner` 强制互斥；配网全程不启用蓝牙 |
 | 电池 | CW2017 电量计 | Wi-Fi 持续轮询需要睡眠策略 |
 
 上游自己的规则（`AI_HARDWARE_DEVELOPMENT_GUIDE.md`）要求：添加网络、TLS、音频或素材时，
@@ -44,7 +44,7 @@
 
 ## 3. 基线行为
 
-`main/demo_wifi.c` 只扫描 AP，不关联、不保存凭证、不发任何 HTTP 请求。在 `main/` 与
+`main/demo_wifi.c`（上游基线的扫描演示页，本仓库已删除）只扫描 AP，不关联、不保存凭证、不发任何 HTTP 请求。在 `main/` 与
 `components/` 中检索不到 `esp_http_client`、`esp_tls` 或 JSON 解析器的使用。
 
 联网、凭证存储、HTTP、TLS、JSON 解析全部由我们实现。好消息是 `esp_http_client`、
@@ -60,11 +60,11 @@
 1. NVS 里存 N 个 profile：`{name, ssid, password}`，外加 `active_index`。只记"哪个连上了"，
    不记"什么时候连上的"：设备没有 RTC，时间戳跨重启就没有意义，而状态机唯一需要的输入
    就是 `active_index`。
-2. 开机先试 `active_index`；失败则按列表遍历，每个 profile 约 10 秒超时；全部失败进入配网状态。
+2. 开机先试 `active_index`；失败则按列表遍历，每个 profile 约 10 秒超时；全部失败后停在状态页显示原因，等用户长按 UP 进配网。
 3. 断线时重跑整个遍历，而不是只重试上一个 SSID，这样人从家到公司，设备跟着换网。
-4. 配网走 SoftAP，**不用蓝牙、不依赖任何小程序**：板子起热点并开一个最小网页表单，手机浏览器
-   提交 SSID 与密码；设备用 APSTA 先验证 STA 真能连上，成功才写入 NVS，然后重启进入纯 STA
-   路径。不做弹窗认证（captive portal）：三键加小屏足够显示热点名与地址，而弹窗认证在不同
+4. 配网走 SoftAP，**不用蓝牙、不依赖任何小程序**：板子起一个开放热点（无密码、单客户端、信道 1）并开一个最小网页表单，手机浏览器
+   提交 SSID 与密码；设备不做 APSTA 预验证，表单合法即写入 NVS 并重启，由开机遍历验证。
+   不做弹窗认证（captive portal）：三键加小屏足够显示热点名与地址，而弹窗认证在不同
    手机上的探测行为差异很大，验证成本高、收益低。
 5. 预设凭据作为"第一次怎么连"的种子，见下。
 
@@ -168,9 +168,10 @@
 
 1. 开机预分配 LVGL 池、音频 DMA（若启用）、HTTP 缓冲。
 2. 网络、存储、音频全部在 worker 任务里。
-3. 联网（STA）与配网（SoftAP/APSTA）是两个模式，不同时运行。配网期间 AP、DHCP、HTTP 与
-   STA 共用同一射频，是内存最紧的一段：参考实现在启动 SoftAP 前最大连续空闲块约 13 KiB，
-   推迟音频初始化后约 31 KiB。进入配网页面前必须先停音频与 LVGL 动画。
+3. 联网（STA）与配网（SoftAP）是两个模式，不同时运行，由 `wifi_radio_owner` 在启动时强制：
+   抢不到射频的服务直接拒绝启动。配网期间 AP、DHCP 与 HTTP 服务共同占用内部 RAM，是本项目
+   内存最紧的一段；参考实现的 13 / 31 KiB 取自 APSTA 场景，这里不用 APSTA，只能当上界看。
+   进入配网页面前必须先停常驻联网服务（`main.c` 的 `services_pause()`）。
 4. 每完成一个功能，在交付报告里记录 free heap 与最大连续块。
 
 参考应用 `xiaonuo-jianlu` 在相同硬件与 IDF 版本上的实测：Wi-Fi 驱动常驻后剩约 42 KB heap，
@@ -197,17 +198,18 @@ Build、Host tests、Device tests、Unverified。
 2. 股票数据源：无 key 接口够用，还是带 key API 值得额外的配网成本？
 3. 音频：本期做，还是等网络栈稳定后另开一期？
 4. 探针清单：除了 mDNS 发现，是否需要显式的 ICMP 目标列表？
-5. 配网入口怎么触发：开机全失败时自动进入，还是长按某个键手动进入，还是两者都要？
-   自动进入省事，但预设失效时会在每次开机都把用户推进配网；手动进入可控，但用户得知道按键。
-6. APSTA 配网在这块板子上是否真的够内存：13 / 31 KiB 是参考应用的数字，本仓库尚未实测。
-   如果不够，退化成"先保存再重启验证"，代价是密码错误要等一次重启才知道。
+5. 配网入口的触发方式已定：**只在状态页长按 UP 手动进入**。自动进入被放弃——预设失效时那会在
+   每次开机都把用户推进配网，而状态页已经把"没有网络"与提示行写在屏幕上，手动入口并不难发现。
+6. 配网用 **AP-only**，不做 APSTA 预验证：表单合法即落盘并重启，由开机遍历验证。代价是密码
+   错误要等一次重启才知道；收益是不必同时维护 AP 与 STA 两个接口。AP-only 下的堆水位本仓库
+   尚未实测，见 §7。
 
 ## 10. 证据索引
 
 - 基线能力契约与硬件事实：`README.md`、`docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md`
 - 开发规则：`AGENTS.md`、`docs/development/ai-guide.md`
 - 环境与构建：`docs/development/engineering/environment-setup.md`、`build-and-test.md`
-- 基线 Wi-Fi 行为：`main/demo_wifi.c`（仅扫描）
+- Wi-Fi 实现：`main/wifi_profile_service.c`（联网）、`main/wifi_provision_service.c`（配网）、`main/page_status.c`（状态页）
 - 联网应用实测：`docs/reference/noah-1106/xiaonuo-jianlu/README.md`
 - SoftAP 资源预算：`docs/reference/phoenixzhc/softap-provisioning-and-resource-budget.md`
 - 依赖清单：`components/bsp/idf_component.yml`

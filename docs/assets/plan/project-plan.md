@@ -5,7 +5,7 @@
 # Project Plan: All-in-One Firmware for FoloToy AI Passport
 
 Scope: custom firmware built on the `FoloToy/ai-passport` baseline (ESP-IDF 5.5.3).
-Status: planning. No application code has been written yet.
+Status: P1 in progress. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build; provisioning has not been measured on hardware.
 Research date: 2026-10-27, against upstream `main` at `006c227`.
 
 Bottom line: the feature set is feasible without an external helper service. The only
@@ -37,7 +37,7 @@ Sources: `components/bsp/include/bsp_pins.h`, `docs/hardware-design/AI_HARDWARE_
 | Display | ST7789 240x320 portrait, RGB565, LVGL 9, 24 KB pool plus one 9.6 KB DMA buffer | One quote screen fits; no double buffering, no large images |
 | Buttons | UP / DOWN / OK on a shared GPIO0 ADC ladder | Callbacks must not block; network work goes to worker tasks |
 | Audio | ES8311 I2S full duplex, demo recording buffer about 96 KB | Audio and full networking cannot both stay resident |
-| Radio | Wi-Fi 2.4 GHz STA and NimBLE share the chip, but not the RAM budget | Networking (STA) and provisioning (SoftAP/APSTA) are separate modes and never run together; provisioning never enables Bluetooth |
+| Radio | Wi-Fi 2.4 GHz STA and NimBLE share the chip, but not the RAM budget | Networking (STA) and provisioning (SoftAP) are separate modes and never run together, enforced by `wifi_radio_owner`; provisioning never enables Bluetooth |
 | Battery | CW2017 fuel gauge | Continuous Wi-Fi polling needs a sleep policy |
 
 Upstream's own rule (`AI_HARDWARE_DEVELOPMENT_GUIDE.md`) requires rechecking the 24 KB LVGL
@@ -47,7 +47,7 @@ baseline explicitly anticipates network features and supplies the accounting che
 
 ## 3. Baseline behaviour
 
-`main/demo_wifi.c` scans for access points only. It does not associate, does not store
+`main/demo_wifi.c` (the upstream scan-only demo, deleted in this repo) scans for access points only. It does not associate, does not store
 credentials and does not perform any HTTP request. A search across `main/` and
 `components/` finds no use of `esp_http_client`, `esp_tls` or a JSON parser.
 
@@ -65,13 +65,14 @@ Mechanism, using only built-in APIs:
    network succeeded is kept, never *when*: the board has no RTC, so a timestamp would not
    survive a reboot, and `active_index` is the only input the state machine needs.
 2. On boot, try `active_index` first; on failure iterate the list with a per-profile timeout
-   of about 10 seconds; if all fail, enter a provisioning state.
+   of about 10 seconds; if all fail, stay on the status page with the reason shown and wait for
+   a long press on UP to enter provisioning.
 3. On disconnect, re-run the whole scan instead of retrying only the last SSID, so the device
    follows the user from home to office.
 4. Provisioning uses SoftAP, with **no Bluetooth and no companion mini-program**: the board
-   raises a hotspot and serves a minimal web form, the phone's browser submits SSID and
-   password, and the device verifies the STA association over APSTA before writing NVS, then
-   reboots into a pure STA path. No captive portal: three buttons and a small screen are enough
+   raises an open hotspot (no password, one client, channel 1) and serves a minimal web form,
+   the phone's browser submits SSID and password, and the device writes NVS and reboots without
+   an APSTA pre-check; the boot sweep verifies the credentials. No captive portal: three buttons and a small screen are enough
    to show the hotspot name and address, while captive-portal probing differs enough across
    phones that verifying it costs far more than it returns.
 5. Preset credentials seed the first connection only; see below.
@@ -198,11 +199,11 @@ each string change is a recurring tax.
 
 1. Pre-allocate LVGL pool, audio DMA (if enabled) and HTTP buffers at boot.
 2. All network, storage and audio work happens in worker tasks.
-3. Networking (STA) and provisioning (SoftAP/APSTA) are separate modes and never run together.
-   During provisioning the AP, DHCP, HTTP server and STA share one radio, which is the
-   tightest memory window in the product: the reference implementation had about 13 KiB of
-   largest free block before starting SoftAP and about 31 KiB after deferring audio init.
-   Audio and LVGL animation must be stopped before entering the provisioning screen.
+3. Networking (STA) and provisioning (SoftAP) are separate modes and never run together;
+   `wifi_radio_owner` enforces this by refusing the second claim. During provisioning the AP,
+   DHCP and HTTP server share internal RAM, the tightest window in this project. The 13 / 31
+   KiB figures come from an APSTA reference, so they bound this design rather than describe it.
+   The resident networking service must be stopped before entering provisioning.
 4. After each feature, record free heap and largest free block in the delivery report.
 
 Reference measurements from the `xiaonuo-jianlu` application on identical hardware and IDF
@@ -234,20 +235,20 @@ Unverified.
    provisioning work?
 3. Audio: in scope this cycle or deferred to a later phase after the network stack is stable?
 4. Endpoint probe list and whether mDNS discovery is enough without explicit ICMP targets.
-5. How provisioning is entered: automatically when a full sweep fails, by holding a button, or
-   both? Automatic is effortless but pushes the user into provisioning on every boot once a
-   preset expires; manual is predictable but the user must know the gesture.
-6. Whether APSTA provisioning really fits in RAM on this board. The 13 / 31 KiB figures come
-   from another application and have not been measured here. If they do not hold, the fallback
-   is "save first, verify after reboot", at the cost of learning about a wrong password one
-   reboot later.
+5. How provisioning is entered: **settled - a long press on UP from the status page only.**
+   Automatic entry was rejected: once a preset expires it would push the user into provisioning
+   on every boot, and the status page already shows "no networks" plus the hold-UP hint.
+6. Provisioning is **AP-only**, with no APSTA pre-check: a valid form is written and the device
+   reboots, and the boot sweep verifies it. A wrong password is only discovered after that
+   reboot; in exchange there is one interface to maintain instead of two. The heap headroom
+   under AP-only provisioning has not been measured in this repository; see section 7.
 
 ## 10. Evidence index
 
 - Baseline capability contract and hardware facts: `README.md`, `docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md`
 - Development rules: `AGENTS.md`, `docs/development/ai-guide.md`
 - Environment and build: `docs/development/engineering/environment-setup.md`, `build-and-test.md`
-- Baseline Wi-Fi behaviour: `main/demo_wifi.c` (scan only)
+- Wi-Fi implementation: `main/wifi_profile_service.c` (networking), `main/wifi_provision_service.c` (provisioning), `main/page_status.c` (status page)
 - Networked application measurements: `docs/reference/noah-1106/xiaonuo-jianlu/README.md`
 - SoftAP resource budget: `docs/reference/phoenixzhc/softap-provisioning-and-resource-budget.md`
 - Dependency inventory: `components/bsp/idf_component.yml`
