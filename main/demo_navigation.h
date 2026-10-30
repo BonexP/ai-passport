@@ -9,6 +9,7 @@ typedef enum {
     DEMO_NAV_INPUT_DOWN_CLICK,
     DEMO_NAV_INPUT_OK_CLICK,
     DEMO_NAV_INPUT_OK_LONG,
+    DEMO_NAV_INPUT_UP_LONG, // 状态页长按 UP：进配网。追加在末尾，既有数值不变。
 } demo_nav_input_t;
 
 typedef enum {

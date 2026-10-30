@@ -17,6 +17,7 @@
 #include "page_status.h"
 #include "ui_pixel.h"
 #include "wifi_profile_service.h"
+#include "wifi_provision_service.h"
 #include "lvgl.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -80,6 +81,11 @@ static volatile bool s_input_ready;
 // 当前页。状态页是开机首屏，菜单退到它后面；s_navigation 只负责菜单光标。
 static page_id_t s_page = PAGE_STATUS;
 static bool s_service_paused;
+
+// 开机引导门：wifi_boot 任务在抢射频，配网入口必须等它落定，否则会 double claim。
+typedef enum { BOOT_WAITING = 0, BOOT_DONE } boot_state_t;
+static volatile boot_state_t s_boot_state = BOOT_WAITING;
+
 static TaskHandle_t s_boot_task;
 
 static void menu_refresh(void) {
@@ -118,11 +124,11 @@ static void enter_menu(void) {
 }
 
 // 吃无线资源的页面（Audio / BLE / Low Power）进去前要把常驻 Wi-Fi 服务停掉。
-// 停不掉也要继续：页面自己会把启动失败显示出来，总比让菜单整个卡住好。
+// **先置标志再停**：服务可能还没起来（开机头 200 ms），此时直接 return 会让
+// s_service_paused 留在 false，退出时就不会恢复，设备会永久断网。
 static void services_pause(void) {
-    if (!wifi_profile_service_running()) return;
-    wifi_profile_service_stop();
     s_service_paused = true;
+    if (wifi_profile_service_running()) wifi_profile_service_stop();
     if (wifi_profile_service_running()) {
         ESP_LOGE(TAG, "Wi-Fi 服务未能停止:页面可能起不来无线功能");
     }
@@ -131,12 +137,15 @@ static void services_pause(void) {
 static void services_resume(void) {
     if (!s_service_paused) return;
     s_service_paused = false;
+    // 配网超时会自己把联网服务拉起来，这里不要再 start 一次（会失败并刷错误日志）。
+    if (wifi_profile_service_running()) return;
     esp_err_t e = wifi_profile_service_start();
     if (e != ESP_OK) ESP_LOGE(TAG, "Wi-Fi 服务恢复失败: %s", esp_err_to_name(e));
 }
 
 static demo_nav_input_t navigation_input(bsp_btn_t btn, bsp_btn_ev_t event) {
     if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) return DEMO_NAV_INPUT_OK_LONG;
+    if (event == BSP_BTN_LONG && btn == BSP_BTN_UP) return DEMO_NAV_INPUT_UP_LONG;
     if (event != BSP_BTN_CLICK) return DEMO_NAV_INPUT_OTHER;
     if (btn == BSP_BTN_UP) return DEMO_NAV_INPUT_UP_CLICK;
     if (btn == BSP_BTN_DOWN) return DEMO_NAV_INPUT_DOWN_CLICK;
@@ -166,6 +175,36 @@ static void process_input(const input_event_t *input) {
         status_page_destroy();
         enter_menu();
         bsp_lvgl_unlock();
+        return;
+    }
+
+    if (route == ROUTE_TO_PROVISION) {
+        // 开机头两百毫秒里 wifi_boot 任务可能正在抢射频，此时进配网会 double claim。
+        if (s_boot_state != BOOT_DONE) return;
+        // 停服务最坏阻塞两秒，必须在解锁之后做，否则整个 UI 冻住。
+        services_pause();
+        if (wifi_provision_service_start() != ESP_OK) {
+            // 起不来就回常驻服务：宁可配不了网，也不能让设备停在断网状态。
+            services_resume();
+            return;
+        }
+        s_page = PAGE_PROVISION;
+        if (bsp_lvgl_lock(500)) {
+            status_page_refresh();
+            bsp_lvgl_unlock();
+        }
+        return;
+    }
+
+    if (route == ROUTE_PROVISION_EXIT) {
+        // 幂等：5 分钟超时已经关过热点时，这里只负责回收 worker。
+        wifi_provision_service_stop();
+        s_page = PAGE_STATUS;
+        services_resume();
+        if (bsp_lvgl_lock(500)) {
+            status_page_refresh();
+            bsp_lvgl_unlock();
+        }
         return;
     }
 
@@ -296,10 +335,13 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 
 // 一次性引导任务：栈初始化可能耗时数百毫秒（NVS 打开、预设落盘、Wi-Fi 驱动启动），
 // 放在 app_main 里会让首屏黑着。跑完自杀。
+//
+// 结束时无条件置 BOOT_DONE：失败也不该永久封锁配网入口——那时用户更需要它。
 static void wifi_boot_task(void *arg) {
     (void)arg;
     esp_err_t err = wifi_profile_service_start();
     if (err != ESP_OK) ESP_LOGE(TAG, "常驻 Wi-Fi 服务启动失败: %s", esp_err_to_name(err));
+    s_boot_state = BOOT_DONE;
     vTaskDelete(NULL);
 }
 

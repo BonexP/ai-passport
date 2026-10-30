@@ -120,9 +120,17 @@ size_t wifi_status_format_headline(const wifi_status_snapshot_t *s, char *buf, s
     case WIFI_PHASE_IDLE:
     case WIFI_PHASE_NO_PROFILE:
     case WIFI_PHASE_ALL_FAILED:
-    case WIFI_PHASE_PROVISIONING:
     case WIFI_PHASE_ERROR:
         n = snprintf(tmp, sizeof tmp, "%s", wifi_status_phase_text((wifi_phase_t)s->phase));
+        break;
+    case WIFI_PHASE_PROVISIONING:
+        // 用户要照着这个名字去找热点，所以有名字就显示名字；没有才退回通用文案。
+        if (s->ssid[0] != '\0') {
+            n = snprintf(tmp, sizeof tmp, "Setup: %.*s", WIFI_PROFILE_SSID_MAX - 1, s->ssid);
+        } else {
+            n = snprintf(tmp, sizeof tmp, "%s",
+                         wifi_status_phase_text(WIFI_PHASE_PROVISIONING));
+        }
         break;
     }
     if (n <= 0) return 0;
@@ -156,7 +164,9 @@ size_t wifi_status_format_detail(const wifi_status_snapshot_t *s, char *buf, siz
         n = snprintf(tmp, sizeof tmp, "%s", wifi_status_fail_text((wifi_fail_reason_t)s->fail));
         break;
     case WIFI_PHASE_PROVISIONING:
-        n = snprintf(tmp, sizeof tmp, "Open %.*s", WIFI_STATUS_IP_MAX - 1, s->ip);
+        // AP 地址是用户要在浏览器里敲的东西，空的时候也不能显示成 "Open "。
+        n = snprintf(tmp, sizeof tmp, "Open %s",
+                     s->ip[0] != '\0' ? s->ip : "192.168.4.1");
         break;
     case WIFI_PHASE_NO_PROFILE:
         n = snprintf(tmp, sizeof tmp, "%s", "Hold UP to set up");

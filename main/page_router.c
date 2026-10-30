@@ -4,9 +4,14 @@
 route_action_t page_router_resolve(page_id_t page, demo_nav_input_t input) {
     switch (page) {
     case PAGE_STATUS:
-        // 状态页只认一种操作。UP 长按留给配网（S3 接），其余一律丢弃，
+        // 状态页只认两种长按：UP 进配网，OK 进菜单。其余一律丢弃，
         // 免得上电时误触把用户弹到别处。
+        if (input == DEMO_NAV_INPUT_UP_LONG) return ROUTE_TO_PROVISION;
         return input == DEMO_NAV_INPUT_OK_LONG ? ROUTE_TO_MENU : ROUTE_IGNORE;
+
+    case PAGE_PROVISION:
+        // 配网态只有一条出路：OK 长按退出。热点开着时其他键一概不响应。
+        return input == DEMO_NAV_INPUT_OK_LONG ? ROUTE_PROVISION_EXIT : ROUTE_IGNORE;
 
     case PAGE_MENU:
         switch (input) {
