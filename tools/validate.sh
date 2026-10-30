@@ -112,6 +112,17 @@ run_static_checks() {
         main/wifi_radio_owner.c \
         -Wl,--gc-sections -o "${test_dir}/test_wifi_service"
     "${test_dir}/test_wifi_service"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_wifi_provision_service.c \
+        tests/demo_stubs/demo_wifi_stack.c tests/demo_stubs/demo_http_stack.c \
+        main/wifi_provision_service.c main/wifi_provision_form.c \
+        main/wifi_provision_flow.c main/wifi_provision_html.c \
+        main/wifi_profile.c main/wifi_profile_nvs.c main/wifi_presets.c \
+        main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
+        main/wifi_radio_owner.c main/wifi_profile_service.c \
+        -Wl,--gc-sections -o "${test_dir}/test_wifi_provision_service"
+    "${test_dir}/test_wifi_provision_service"
 
     for demo in audio low_power ble; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
