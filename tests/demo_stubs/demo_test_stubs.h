@@ -409,7 +409,7 @@ esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *req, const char *field, char 
 
 /* ---- 观测与注入 ---- */
 #define TEST_HTTPD_URI_SLOTS 4
-#define TEST_HTTPD_BODY_MAX  1024
+#define TEST_HTTPD_BODY_MAX  2048
 extern httpd_uri_t test_httpd_uris[TEST_HTTPD_URI_SLOTS];
 extern unsigned    test_httpd_uri_count;
 extern unsigned    test_httpd_starts, test_httpd_stops, test_httpd_sends,
