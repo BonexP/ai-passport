@@ -259,7 +259,7 @@ int ble_gap_adv_stop(void) { return 0; }
 /* ==== S2 追加：队列 / 临界区 / NVS / netif 初始化 / LVGL 补充 ==== */
 
 /* ---- 队列 ---- */
-#define TEST_QUEUE_SLOTS 4
+#define TEST_QUEUE_SLOTS 16
 #define TEST_QUEUE_DEPTH 8
 #define TEST_QUEUE_ITEM  8
 
@@ -468,14 +468,17 @@ esp_err_t esp_event_loop_create_default(void) {
     return test_event_loop_creates == 1 ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
+// 按 addr 真实格式化，不再恒返 192.168.1.7：AP 需要 192.168.4.1。
+// 约定与桩里的 esp_netif_get_ip_info 一致（小端：低字节是第一段）。
 char *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len) {
-    (void)addr;
-    if (buf != NULL && len > 0) {
-        const char *fallback = "192.168.1.7";
-        int i = 0;
-        for (; fallback[i] != '\0' && i + 1 < len; i++) buf[i] = fallback[i];
-        buf[i] = '\0';
-    }
+    if (buf == NULL || len <= 0) return buf;
+    unsigned value = (addr != NULL) ? addr->addr : 0;
+    char tmp[48];
+    snprintf(tmp, sizeof tmp, "%u.%u.%u.%u", value & 0xffu, (value >> 8) & 0xffu,
+             (value >> 16) & 0xffu, (value >> 24) & 0xffu);
+    int i = 0;
+    for (; tmp[i] != '\0' && i + 1 < len; i++) buf[i] = tmp[i];
+    buf[i] = '\0';
     return buf;
 }
 
@@ -497,4 +500,22 @@ int bsp_battery_mv(void) { return 3900; }
 void test_queue_reset(void) {
     memset(test_queues, 0, sizeof test_queues);
     test_queue_count = 0;
+}
+
+/* ---- 任务/信号量池跨用例只增不减，S3 的多个用例需要显式清零 ---- */
+void test_task_reset(void) {
+    memset(test_tasks, 0, sizeof test_tasks);
+    test_task_count = 0;
+    test_task_deletes = 0;
+    test_notifications = 0;
+    test_latest_task = NULL;
+    test_current_task = NULL;
+    test_create_fails = false;
+}
+
+void test_sem_reset(void) {
+    memset(test_sems, 0, sizeof test_sems);
+    test_sem_count = 0;
+    test_sem_fails = false;
+    test_auto_ack = false;
 }

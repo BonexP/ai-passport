@@ -14,16 +14,19 @@ typedef enum {
     PAGE_STATUS = 0, // 开机首屏
     PAGE_MENU,       // 菜单
     PAGE_DEMO,       // 某个演示页
+    PAGE_PROVISION,  // 配网态（复用状态页的屏幕）
 } page_id_t;
 
 typedef enum {
-    ROUTE_IGNORE = 0,  // 丢弃（状态页上的绝大多数按键）
-    ROUTE_TO_STATUS,   // 菜单 → 状态页
-    ROUTE_TO_MENU,     // 状态页 → 菜单
-    ROUTE_MENU_MOVE,   // 菜单光标移动（交给 demo_navigation）
-    ROUTE_MENU_ENTER,  // 进入选中项（交给 demo_navigation 判定可用性）
-    ROUTE_DEMO_KEY,    // 转发给当前页
-    ROUTE_DEMO_EXIT,   // 退出当前页回菜单
+    ROUTE_IGNORE = 0,    // 丢弃（状态页上的绝大多数按键）
+    ROUTE_TO_STATUS,     // 菜单 → 状态页
+    ROUTE_TO_MENU,       // 状态页 → 菜单
+    ROUTE_TO_PROVISION,  // 状态页 → 配网
+    ROUTE_PROVISION_EXIT,// 配网 → 状态页
+    ROUTE_MENU_MOVE,     // 菜单光标移动（交给 demo_navigation）
+    ROUTE_MENU_ENTER,    // 进入选中项（交给 demo_navigation 判定可用性）
+    ROUTE_DEMO_KEY,      // 转发给当前页
+    ROUTE_DEMO_EXIT,     // 退出当前页回菜单
 } route_action_t;
 
 route_action_t page_router_resolve(page_id_t page, demo_nav_input_t input);

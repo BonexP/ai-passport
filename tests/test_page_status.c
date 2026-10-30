@@ -41,7 +41,7 @@ static void test_build_shows_the_placeholder_before_any_publish(void) {
     assert(s_timer != NULL);
     // build 会先创建控件（页眉 2 次 + 文本 9 次），最后一帧渲染固定 7 次。
     // 这里只保证"渲染发生了"，具体文案由下面按顺序断言。
-    assert(test_label_writes >= 7);
+    assert(test_label_writes >= 8);
     assert(strcmp(label_from_end(7), "Starting Wi-Fi...") == 0);
     assert(strcmp(label_from_end(2), "Hold OK: menu") == 0);
     assert(strcmp(label_from_end(1), "88%") == 0);
@@ -52,7 +52,7 @@ static void test_connected_snapshot_fills_every_row(void) {
 
     unsigned before = test_label_writes;
     status_page_refresh();
-    assert(test_label_writes == before + 7);
+    assert(test_label_writes == before + 8);
     assert(strcmp(label_from_end(7), "Connected: home-net") == 0);
     assert(strcmp(label_from_end(6), "IP 192.168.1.7") == 0);
     assert(strcmp(label_from_end(5), "192.168.1.7") == 0);

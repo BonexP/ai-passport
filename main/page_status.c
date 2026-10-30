@@ -46,9 +46,14 @@ static void clamp_ssid(wifi_status_snapshot_t *view) {
     view->ssid[STATUS_SSID_SHOWN] = '\0';
 }
 
-// 固定 7 次文本写入：主行 / 次行 / 三个值 / 提示 / 电量。测试按这个顺序断言。
+// 固定 8 次文本写入：第三行键名 / 主行 / 次行 / 三个值 / 提示 / 电量。
+// 键名写放在最前面，这样后面 7 次的顺序与既有的断言完全一致。
 static void render(const wifi_status_snapshot_t *snap) {
     char buf[48];
+    const bool provisioning = (snap->phase == WIFI_PHASE_PROVISIONING);
+
+    // 配网态第三行改看客户端数：信号强度在热点模式下没有意义。
+    lv_label_set_text(s_key[2], provisioning ? "Clients" : "Signal");
 
     if (snap->seq == 0) {
         lv_label_set_text(s_headline, "Starting Wi-Fi...");
@@ -77,14 +82,17 @@ static void render(const wifi_status_snapshot_t *snap) {
     snprintf(buf, sizeof buf, "%u saved", (unsigned)snap->profile_count);
     lv_label_set_text(s_value[1], buf);
 
-    if (snap->rssi > -128) {
+    if (provisioning) {
+        snprintf(buf, sizeof buf, "%u clients", (unsigned)snap->ap_clients);
+        lv_label_set_text(s_value[2], buf);
+    } else if (snap->rssi > -128) {
         snprintf(buf, sizeof buf, "%d dBm", (int)snap->rssi);
         lv_label_set_text(s_value[2], buf);
     } else {
         lv_label_set_text(s_value[2], "-");
     }
 
-    lv_label_set_text(s_hint, "Hold OK: menu");
+    lv_label_set_text(s_hint, provisioning ? "Hold OK: exit" : "Hold OK: menu");
     ui_product_battery_text(s_battery, bsp_battery_soc());
 }
 

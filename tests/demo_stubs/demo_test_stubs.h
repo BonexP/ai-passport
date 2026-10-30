@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h> /* ssize_t：httpd 假件的签名要与 IDF 一致 */
 
 typedef int esp_err_t;
 #define ESP_OK 0
@@ -11,6 +12,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NO_MEM 0x101
 #define ESP_ERR_INVALID_STATE 0x103
 #define ESP_ERR_TIMEOUT 0x107
+#define ESP_ERR_NOT_FOUND 0x105
 const char *esp_err_to_name(esp_err_t error);
 void test_log(const char *tag, const char *format, ...);
 #define ESP_LOGE(...) test_log(__VA_ARGS__)
@@ -124,8 +126,10 @@ typedef const char *esp_event_base_t;
 typedef void *esp_event_handler_instance_t;
 #define WIFI_EVENT "wifi"
 #define WIFI_EVENT_SCAN_DONE 1
-#define WIFI_STORAGE_RAM 0
-#define WIFI_MODE_STA 0
+/* IDF 真值：flash=0 / ram=1。原先写成 0 是错的，只是没人读过它。 */
+#define WIFI_STORAGE_RAM 1
+/* IDF 真值：NULL=0 / STA=1 / AP=2 / APSTA=3。 */
+#define WIFI_MODE_STA 1
 typedef struct { int unused; } wifi_init_config_t;
 #define WIFI_INIT_CONFIG_DEFAULT() { 0 }
 typedef struct { int rssi; uint8_t ssid[33]; uint8_t primary; } wifi_ap_record_t;
@@ -236,7 +240,17 @@ char     *esp_ip4addr_ntoa(const esp_ip4_addr_t *addr, char *buf, int len);
 #define WIFI_IF_STA                 0
 
 typedef struct { uint8_t ssid[32]; uint8_t password[64]; } wifi_sta_config_t;
-typedef union { wifi_sta_config_t sta; } wifi_config_t;
+typedef struct {
+    uint8_t  ssid[32];
+    uint8_t  password[64];
+    uint8_t  ssid_len;
+    uint8_t  channel;
+    int      authmode; // wifi_auth_mode_t
+    uint8_t  ssid_hidden;
+    uint8_t  max_connection;
+    uint16_t beacon_interval;
+} wifi_ap_config_t;
+typedef union { wifi_sta_config_t sta; wifi_ap_config_t ap; } wifi_config_t;
 typedef struct { uint8_t reason; } wifi_event_sta_disconnected_t;
 esp_err_t esp_wifi_set_config(int iface, const wifi_config_t *cfg);
 esp_err_t esp_wifi_connect(void);
@@ -277,3 +291,134 @@ int bsp_battery_mv(void);
 
 /* 队列槽位池跨用例会耗尽，测试之间必须显式清零。 */
 void test_queue_reset(void);
+
+/* ==== S3：SoftAP 配网所需的桩面 ==== */
+
+#define WIFI_IF_AP      1
+#define WIFI_MODE_AP    2
+#define WIFI_MODE_APSTA 3
+
+#define WIFI_AUTH_OPEN          0
+#define WIFI_AUTH_WPA_PSK       2
+#define WIFI_AUTH_WPA2_PSK      3
+#define WIFI_AUTH_WPA_WPA2_PSK  4
+
+#define ESP_NETIF_DEFAULT_WIFI_AP() { 0 }
+esp_err_t esp_netif_attach_wifi_ap(esp_netif_t *netif);
+esp_err_t esp_wifi_set_default_wifi_ap_handlers(void);
+
+/* WIFI_EVENT_AP_* 的数值未在固件侧核对过；构建通过即视为核对完成。 */
+#define WIFI_EVENT_AP_STACONNECTED    14
+#define WIFI_EVENT_AP_STADISCONNECTED 15
+#define IP_EVENT_AP_STAIPASSIGNED     2
+typedef struct { uint8_t mac[6]; uint8_t aid; } wifi_event_ap_staconnected_t;
+typedef struct { uint8_t mac[6]; uint8_t aid; } wifi_event_ap_stadisconnected_t;
+typedef struct { esp_ip4_addr_t ip; uint8_t mac[6]; } ip_event_ap_staipassigned_t;
+
+#define ESP_MAC_WIFI_SOFTAP 1
+esp_err_t esp_read_mac(uint8_t *mac, int type);
+
+/* 会话选择器：STA 沿用 1..9 的旧矩阵，AP 用独立计数器，互不干扰。 */
+typedef enum { TEST_WIFI_SESSION_STA = 0, TEST_WIFI_SESSION_AP } test_wifi_session_t;
+void     test_wifi_session(test_wifi_session_t session);
+unsigned test_ap_next_step(void); /* httpd 假件也要参与编号，故导出 */
+extern unsigned test_ap_step, test_ap_fail_at, test_ap_destroys;
+int      test_wifi_mode(void);
+extern wifi_config_t test_wifi_cfg_sta, test_wifi_cfg_ap;
+
+/* 事件注入：按 base + id 分发（覆盖 ANY_ID）。 */
+void test_wifi_fire_event(esp_event_base_t base, int32_t id, void *data);
+void test_wifi_fire_ap_staconnected(void);
+void test_wifi_fire_ap_stadisconnected(void);
+void test_wifi_fire_ap_ipassigned(void);
+
+/* 任务/信号量池跨用例只增不减，必须显式清零。 */
+void test_task_reset(void);
+void test_sem_reset(void);
+
+/* ==== S3：esp_http_server 桩面（IDF 名逐字一致；值待固件构建核对） ==== */
+
+typedef void *httpd_handle_t;
+typedef enum { HTTP_ANY = 1, HTTP_GET = 2, HTTP_POST = 4 } httpd_method_t;
+
+typedef enum {
+    HTTPD_400_BAD_REQUEST = 0,
+    HTTPD_408_REQ_TIMEOUT,
+    HTTPD_411_LENGTH_REQUIRED,
+    HTTPD_413_CONTENT_TOO_LARGE,
+    HTTPD_500_INTERNAL_SERVER_ERROR,
+} httpd_err_code_t;
+
+typedef struct httpd_req {
+    httpd_handle_t handle;
+    httpd_method_t method;
+    void          *user_ctx;
+    size_t         content_len; /* 名字与类型都必须与 IDF 一致 */
+} httpd_req_t;
+
+typedef struct {
+    const char      *uri;
+    httpd_method_t   method;
+    esp_err_t      (*handler)(httpd_req_t *r);
+    void            *user_ctx;
+} httpd_uri_t;
+
+typedef struct {
+    unsigned task_priority;
+    size_t   stack_size;
+    int      core_id;
+    uint16_t server_port;
+    uint16_t ctrl_port;
+    uint16_t max_open_sockets;
+    uint16_t max_uri_handlers;
+    uint16_t max_resp_headers;
+    uint16_t backlog_conn;
+    bool     lru_purge_enable;
+    uint16_t recv_wait_timeout;
+    uint16_t send_wait_timeout;
+} httpd_config_t;
+
+#define HTTPD_DEFAULT_CONFIG()                     \
+    {                                              \
+        .task_priority = 5, .stack_size = 4096,    \
+        .core_id = 0, .server_port = 80,           \
+        .ctrl_port = 32768, .max_open_sockets = 7, \
+        .max_uri_handlers = 8, .max_resp_headers = 8, \
+        .backlog_conn = 5, .lru_purge_enable = false, \
+        .recv_wait_timeout = 5, .send_wait_timeout = 5, \
+    }
+
+#define HTTPD_RESP_USE_STRLEN (-1)
+#define HTTPD_SOCK_ERR_FAIL (-1)
+#define HTTPD_SOCK_ERR_INVALID (-2)
+#define HTTPD_SOCK_ERR_TIMEOUT (-3)
+
+esp_err_t httpd_start(httpd_handle_t *handle, const httpd_config_t *config);
+esp_err_t httpd_stop(httpd_handle_t handle);
+esp_err_t httpd_register_uri_handler(httpd_handle_t handle, const httpd_uri_t *uri);
+esp_err_t httpd_unregister_uri_handler(httpd_handle_t handle, const char *uri,
+                                       httpd_method_t method);
+esp_err_t httpd_resp_send(httpd_req_t *req, const char *buf, ssize_t buf_len);
+esp_err_t httpd_resp_send_err(httpd_req_t *req, httpd_err_code_t error, const char *msg);
+esp_err_t httpd_resp_set_status(httpd_req_t *req, const char *status);
+esp_err_t httpd_resp_set_type(httpd_req_t *req, const char *type);
+int       httpd_req_recv(httpd_req_t *req, char *buf, size_t buf_len);
+size_t    httpd_req_get_hdr_value_len(httpd_req_t *req, const char *field);
+esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *req, const char *field, char *val,
+                                      size_t val_size);
+
+/* ---- 观测与注入 ---- */
+#define TEST_HTTPD_URI_SLOTS 4
+#define TEST_HTTPD_BODY_MAX  2048
+extern httpd_uri_t test_httpd_uris[TEST_HTTPD_URI_SLOTS];
+extern unsigned    test_httpd_uri_count;
+extern unsigned    test_httpd_starts, test_httpd_stops, test_httpd_sends,
+                   test_httpd_send_errs, test_httpd_recv_calls, test_httpd_recv_timeout_at;
+extern char        test_httpd_last_status[32];
+extern char        test_httpd_last_type[48];
+extern char        test_httpd_last_body[TEST_HTTPD_BODY_MAX];
+extern size_t      test_httpd_last_len;
+void        test_httpd_reset(void);
+/* content_length 传 NULL 表示请求里没有 Content-Length 头。 */
+void        test_httpd_set_request(const char *body, size_t len, const char *content_length);
+httpd_req_t *test_httpd_req(void);

@@ -21,6 +21,9 @@ static void reset_world(void) {
     // 上一个用例可能把服务留在运行态；先收干净，否则下一个 start() 直接返回
     // ESP_ERR_INVALID_STATE，失败会以"莫名其妙的断言"形式出现在别处。
     wifi_profile_service_stop();
+    // 上一个用例可能留下别的持有者（或服务漏了 release）。这里强制归零是夹具行为，
+    // 不是掩盖：每个用例自己会断言它关心的那条路径有没有正确释放。
+    wifi_radio_owner_init(wifi_radio_shared());
     test_nvs_clear();
     test_queue_reset();
     test_wifi_stack_reset();
@@ -67,6 +70,7 @@ static void test_every_stack_step_rolls_back_completely(void) {
         assert(test_wifi_stack_clean());
         assert(s_netif == NULL);
         assert(!s_wifi_inited && !s_wifi_started);
+        assert(wifi_radio_holder(wifi_radio_shared()) == WIFI_RADIO_FREE);
         assert(snapshot().phase == WIFI_PHASE_ERROR);
     }
 }
@@ -144,6 +148,37 @@ static void test_stop_without_start_is_a_noop(void) {
     assert(!wifi_profile_service_running());
 }
 
+static void test_provisioning_owner_blocks_start(void) {
+    reset_world();
+    // 配网正占着射频：联网服务必须在动任何资源之前就拒绝。
+    assert(wifi_radio_claim(wifi_radio_shared(), WIFI_RADIO_PROVISION));
+
+    assert(wifi_profile_service_start() == ESP_ERR_INVALID_STATE);
+    assert(test_wifi_step == 0); // 栈一步都没动
+    assert(!wifi_profile_service_running());
+    assert(wifi_radio_holder(wifi_radio_shared()) == WIFI_RADIO_PROVISION);
+
+    wifi_radio_owner_init(wifi_radio_shared());
+}
+
+static void test_start_holds_and_stop_releases_the_radio(void) {
+    reset_world();
+    assert(wifi_profile_service_start() == ESP_OK);
+    assert(wifi_radio_holder(wifi_radio_shared()) == WIFI_RADIO_PROFILE);
+
+    wifi_profile_service_stop();
+    assert(wifi_radio_holder(wifi_radio_shared()) == WIFI_RADIO_FREE);
+}
+
+static void test_nvs_failure_releases_the_radio(void) {
+    reset_world();
+    test_nvs_flash_result = ESP_FAIL;
+
+    assert(wifi_profile_service_start() != ESP_OK);
+    // 抢到了又失败：必须还回去，否则配网永远起不来。
+    assert(wifi_radio_holder(wifi_radio_shared()) == WIFI_RADIO_FREE);
+}
+
 int main(void) {
     test_nvs_init_failure_is_reported_first();
     test_nvs_open_failure_also_stops_before_the_stack();
@@ -154,6 +189,9 @@ int main(void) {
     test_stop_publishes_idle_and_reaps_the_worker();
     test_start_stop_is_repeatable();
     test_stop_without_start_is_a_noop();
+    test_provisioning_owner_blocks_start();
+    test_start_holds_and_stop_releases_the_radio();
+    test_nvs_failure_releases_the_radio();
     puts("wifi profile service tests: PASS");
     return 0;
 }
