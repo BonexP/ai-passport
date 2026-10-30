@@ -45,6 +45,7 @@ static void reset_world(void) {
     test_httpd_reset();
     test_wifi_session(TEST_WIFI_SESSION_AP);
     test_time_us = 0;
+    test_restarts = 0;
     test_auto_ack = false;
 }
 
