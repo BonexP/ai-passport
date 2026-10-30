@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "wifi_profile_service.h"
+#include "wifi_provision_flow.h"
 #include "wifi_provision_form.h"
 #include "wifi_provision_html.h"
 #include "wifi_provision_service.h"
