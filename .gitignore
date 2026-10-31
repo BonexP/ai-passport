@@ -20,3 +20,7 @@ managed_components/
 /.agents/skills/passport-build
 /.agents/skills/passport-device-test
 /.agents/skills/passport-debug
+
+# Firmware images built locally or downloaded from CI artifacts.
+# The name is misleadingly similar to build/ output, so pin it explicitly.
+/FoloToy-AI-Passport*.bin
