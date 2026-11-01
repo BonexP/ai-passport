@@ -364,12 +364,6 @@ bool wifi_profile_service_running(void) {
     return s_running;
 }
 
-esp_netif_t *wifi_profile_service_netif(void) {
-    // 只读当前句柄。SNTP 必须在 stop 之前退出（见 main.c 的 services_pause 顺序），
-    // 否则它会拿着一个已经销毁的 netif。
-    return s_running ? s_netif : NULL;
-}
-
 esp_err_t wifi_profile_service_start(void) {
     if (s_running) return ESP_ERR_INVALID_STATE;
 

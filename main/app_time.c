@@ -20,17 +20,14 @@ static int64_t current_epoch(void) {
     return (int64_t)now;
 }
 
-esp_err_t app_time_start(esp_netif_t *netif) {
+esp_err_t app_time_start(void) {
     if (s_started) {
         return ESP_OK;
     }
-    if (netif == NULL) {
-        // Wi-Fi 服务没在跑：没有 netif 可绑定。调用方应先启 Wi-Fi。
-        return ESP_ERR_INVALID_STATE;
-    }
 
+    // esp_netif_sntp 使用默认 netif（Wi-Fi 服务 attach 时会把它设为默认），
+    // 因此不需要、也不能通过 config 指定 netif。
     esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-    cfg.netif = netif;
     // 默认配置会阻塞到首次同步完成。这里必须关掉：调用方是输入/启动任务，
     // 卡住十几秒会让首屏和按键全部失去响应。worker 自己轮询 app_time_is_valid()。
     cfg.wait_for_sync = false;

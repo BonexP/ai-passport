@@ -11,7 +11,6 @@
 #include <stdbool.h>
 
 #include "esp_err.h"
-#include "esp_netif.h"
 
 // 建栈并开始第一轮遍历。可重复调用，已在运行时返回 ESP_ERR_INVALID_STATE。
 esp_err_t wifi_profile_service_start(void);
@@ -20,8 +19,3 @@ esp_err_t wifi_profile_service_start(void);
 void wifi_profile_service_stop(void);
 
 bool wifi_profile_service_running(void);
-
-// 当前 STA netif；服务未运行时返回 NULL。
-// 只给需要 netif 句柄的伴生服务（目前是 SNTP）用：该指针在服务 stop 时被销毁，
-// 调用方不得跨一次 start/stop 周期保存它。
-esp_netif_t *wifi_profile_service_netif(void);

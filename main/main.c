@@ -156,7 +156,7 @@ static void services_resume(void) {
         }
     }
     // 幂等：配网超时那条路径下 Wi-Fi 已经在跑，但 SNTP 还没起。
-    if (app_time_start(wifi_profile_service_netif()) != ESP_OK) {
+    if (app_time_start() != ESP_OK) {
         ESP_LOGW(TAG, "SNTP 未能启动:HTTPS 会一直等到时间可用");
     }
 }
@@ -171,7 +171,7 @@ static void enter_weather_page(void) {
     // 启动时若 SNTP 没起来（netif 尚未就绪），进入天气页是一个明确的"现在要用网络"
     // 的信号，这里再试一次；app_time_start 幂等。
     if (!app_time_is_valid()) {
-        (void)app_time_start(wifi_profile_service_netif());
+        (void)app_time_start();
     }
 
     esp_err_t e = net_worker_start();
@@ -422,7 +422,7 @@ static void wifi_boot_task(void *arg) {
     esp_err_t err = wifi_profile_service_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "常驻 Wi-Fi 服务启动失败: %s", esp_err_to_name(err));
-    } else if (app_time_start(wifi_profile_service_netif()) != ESP_OK) {
+    } else if (app_time_start() != ESP_OK) {
         // 校时失败不阻塞启动：没有时钟时天气会显示 Waiting for time，
         // 但配网、状态页与离线快照仍然可用。
         ESP_LOGW(TAG, "SNTP 未能启动:HTTPS 会一直等到时间可用");

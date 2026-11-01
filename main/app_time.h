@@ -13,11 +13,11 @@
 #include <stdint.h>
 
 #include "esp_err.h"
-#include "esp_netif.h"
 
-// 启动 SNTP。netif 由 wifi_profile_service_netif() 提供；重复调用是空操作。
-// 返回 ESP_ERR_INVALID_STATE 表示 netif 为 NULL（Wi-Fi 服务不在运行）。
-esp_err_t app_time_start(esp_netif_t *netif);
+// 启动 SNTP。esp_netif_sntp 使用默认 netif，因此不接收句柄；
+// 必须在 Wi-Fi 服务建好 netif 之后调用。重复调用是空操作。
+// 不阻塞等待同步：worker 轮询 app_time_is_valid()。
+esp_err_t app_time_start(void);
 
 // 停止并释放在跑的 SNTP。未启动时是空操作。
 void app_time_stop(void);
