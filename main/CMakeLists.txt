@@ -45,5 +45,6 @@ idf_component_register(
          "page_weather.c"
          "page_ring.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp bt esp_event esp_hw_support esp_http_client esp_http_server esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES bsp bt esp_event esp_hw_support esp_http_client esp_http_server esp_netif esp_timer
+             esp_wifi mbedtls nvs_flash
 )
