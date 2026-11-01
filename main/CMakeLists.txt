@@ -11,6 +11,10 @@ idf_component_register(
 
          "demo_ble.c"
          "demo_low_power.c"
+         "app_location.c"
+         "app_config.c"
+         "app_clock.c"
+         "app_time.c"
          "wifi_profile.c"
          "wifi_connect_policy.c"
          "wifi_profile_nvs.c"
@@ -26,6 +30,20 @@ idf_component_register(
          "page_router.c"
          "ui_product.c"
          "page_status.c"
+         "http_body.c"
+         "json_field.c"
+         "app_config_check.c"
+         "app_data.c"
+         "app_data_shared.c"
+         "net_schedule.c"
+         "weather_source.c"
+         "net_http.c"
+         "net_worker.c"
+         "weather_view.c"
+         "net_snapshot.c"
+         "net_snapshot_store.c"
+         "page_weather.c"
+         "page_ring.c"
     INCLUDE_DIRS "."
-    REQUIRES bsp bt esp_event esp_hw_support esp_http_server esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES bsp bt esp_event esp_hw_support esp_http_client esp_http_server esp_netif esp_timer esp_wifi nvs_flash
 )

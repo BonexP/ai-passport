@@ -14,27 +14,36 @@
 
 #include "wifi_profile.h"
 
-// 正文上限。表单只有两个字段，1024 字节足够放下 32 字节 SSID 与 64 字节密码的
-// 任何百分号编码形式（最坏 3 倍膨胀）。
+// 正文上限。五个字段（SSID、密码、经纬度、地点名）最坏的百分号编码形式约 450 字节，
+// 1024 仍然放得下，且给未来源码级字段留了余量。
 #define WIFI_PROV_BODY_MAX 1024u
 
-// 表单字段名。页面与解析器共用这两个常量，避免两边写错。
+// 表单字段名。页面与解析器共用这些常量，避免两边写错。
 #define WIFI_PROV_FIELD_SSID "ssid"
 #define WIFI_PROV_FIELD_PASS "pass"
+#define WIFI_PROV_FIELD_LAT "lat"
+#define WIFI_PROV_FIELD_LON "lon"
+#define WIFI_PROV_FIELD_PLACE "place"
 
 typedef enum {
     WIFI_FORM_OK = 0,
     WIFI_FORM_ERR_MISSING_SSID, // 没有 ssid 这个键
     WIFI_FORM_ERR_EMPTY_SSID,   // 有键但值为空
-    WIFI_FORM_ERR_TOO_LONG,     // 解码后超出 SSID 32 / 密码 64
+    WIFI_FORM_ERR_TOO_LONG,     // 解码后超出 SSID 32 / 密码 64 / 地点名 23
     WIFI_FORM_ERR_BAD_ESCAPE,   // %XX 不完整或不是十六进制
     WIFI_FORM_ERR_NUL,          // 解码出 '\0'（C 字符串装不下）
     WIFI_FORM_ERR_DUPLICATE,    // 同一个键出现两次
     WIFI_FORM_ERR_NO_FIELD,     // 某一段没有 '='
+    WIFI_FORM_ERR_LOCATION_PAIR,  // 经纬度只填了一个（或只出现一个键）
+    WIFI_FORM_ERR_LOCATION_RANGE, // 经纬度不是数字或超出 ±90/±180
+    WIFI_FORM_ERR_PLACE,          // 地点名非法，或没有坐标却填了地点名
+    WIFI_FORM_ERR_COUNT,          // 仅用于测试遍历，永远不是返回值
 } wifi_form_result_t;
 
 typedef struct {
-    wifi_profile_t profile;      // 已通过 wifi_profile_set_fields 校验
+    // 已通过 wifi_profile_set_fields 校验；profile.location 由经纬度与地点名填充。
+    // 两者都留空时 location.has_location == false，天气页显示 Location not set。
+    wifi_profile_t profile;
     bool           has_password; // false = 开放网络
 } wifi_provision_form_t;
 

@@ -261,8 +261,11 @@ esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap);
 #define LV_ALIGN_TOP_RIGHT 3
 #define LV_OBJ_FLAG_SCROLLABLE 0x0001
 extern const lv_font_t lv_font_montserrat_20;
+extern const lv_font_t lv_font_montserrat_36;
+#define LV_OBJ_FLAG_HIDDEN 0x0002
 void lv_obj_set_pos(lv_obj_t *object, int x, int y);
 void lv_obj_remove_flag(lv_obj_t *object, int flag);
+void lv_obj_add_flag(lv_obj_t *object, int flag);
 void lv_obj_set_style_pad_all(lv_obj_t *object, int pad, int selector);
 void lv_obj_set_style_border_color(lv_obj_t *object, uint32_t color, int selector);
 

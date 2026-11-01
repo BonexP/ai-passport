@@ -10,11 +10,17 @@
 #include "bsp_audio.h"
 #include "bsp_battery.h"
 #include "bsp_pins.h"      // 错误日志里要打印 BSP_LCD_* 引脚号
+#include "app_config.h"
+#include "app_config_check.h"
+#include "app_time.h"
 #include "demo.h"
 #include "demo_navigation.h"
 #include "key_guard.h"
+#include "net_worker.h"
+#include "page_ring.h"
 #include "page_router.h"
 #include "page_status.h"
+#include "page_weather.h"
 #include "ui_pixel.h"
 #include "wifi_profile_service.h"
 #include "wifi_provision_service.h"
@@ -128,6 +134,10 @@ static void enter_menu(void) {
 // s_service_paused 留在 false，退出时就不会恢复，设备会永久断网。
 static void services_pause(void) {
     s_service_paused = true;
+    // 先停依赖网络的服务，再停 Wi-Fi。net_worker 持有在途 TLS 连接，SNTP 持有
+    // STA netif 句柄，顺序反了它们会指向已经销毁的 netif。
+    net_worker_stop();
+    app_time_stop();
     if (wifi_profile_service_running()) wifi_profile_service_stop();
     if (wifi_profile_service_running()) {
         ESP_LOGE(TAG, "Wi-Fi 服务未能停止:页面可能起不来无线功能");
@@ -138,9 +148,48 @@ static void services_resume(void) {
     if (!s_service_paused) return;
     s_service_paused = false;
     // 配网超时会自己把联网服务拉起来，这里不要再 start 一次（会失败并刷错误日志）。
-    if (wifi_profile_service_running()) return;
-    esp_err_t e = wifi_profile_service_start();
-    if (e != ESP_OK) ESP_LOGE(TAG, "Wi-Fi 服务恢复失败: %s", esp_err_to_name(e));
+    if (!wifi_profile_service_running()) {
+        esp_err_t e = wifi_profile_service_start();
+        if (e != ESP_OK) {
+            ESP_LOGE(TAG, "Wi-Fi 服务恢复失败: %s", esp_err_to_name(e));
+            return;
+        }
+    }
+    // 幂等：配网超时那条路径下 Wi-Fi 已经在跑，但 SNTP 还没起。
+    if (app_time_start(wifi_profile_service_netif()) != ESP_OK) {
+        ESP_LOGW(TAG, "SNTP 未能启动:HTTPS 会一直等到时间可用");
+    }
+}
+
+// 进入天气页。调用方必须已经持有 LVGL 锁。
+// 网络任务是懒启动的：没打开过天气页就不占那 6 KB 栈。
+static void enter_weather_page(void) {
+    status_page_destroy();
+    page_weather_build();
+    s_page = PAGE_WEATHER;
+
+    // 启动时若 SNTP 没起来（netif 尚未就绪），进入天气页是一个明确的"现在要用网络"
+    // 的信号，这里再试一次；app_time_start 幂等。
+    if (!app_time_is_valid()) {
+        (void)app_time_start(wifi_profile_service_netif());
+    }
+
+    esp_err_t e = net_worker_start();
+    if (e != ESP_OK) {
+        // 起不来也要让页面能显示 "Updating..."，不要黑屏。
+        ESP_LOGE(TAG, "网络任务启动失败: %s", esp_err_to_name(e));
+    }
+    net_worker_set_visible(true);
+    net_worker_request_refresh(); // 进页面立即判断一次，不必等 10 分钟
+}
+
+// 离开天气页回状态页。调用方必须已经持有 LVGL 锁。
+static void leave_weather_page(void) {
+    // 先关门再拆页面：worker 不会再为新的一帧发请求。
+    net_worker_set_visible(false);
+    page_weather_destroy();
+    status_page_build();
+    s_page = PAGE_STATUS;
 }
 
 static demo_nav_input_t navigation_input(bsp_btn_t btn, bsp_btn_ev_t event) {
@@ -159,14 +208,44 @@ static void process_input(const input_event_t *input) {
 
     if (route == ROUTE_TO_STATUS) {
         if (!bsp_lvgl_lock(500)) return;
-        if (s_menu_scr != NULL) {
-            lv_obj_delete(s_menu_scr);
-            s_menu_scr = NULL;
-            s_mascot = NULL;
+        if (s_page == PAGE_WEATHER) {
+            leave_weather_page();
+        } else {
+            if (s_menu_scr != NULL) {
+                lv_obj_delete(s_menu_scr);
+                s_menu_scr = NULL;
+                s_mascot = NULL;
+            }
+            status_page_build();
+            s_page = PAGE_STATUS;
         }
-        status_page_build();
-        s_page = PAGE_STATUS;
         bsp_lvgl_unlock();
+        return;
+    }
+
+    // 产品页环：短按上下在状态页与天气页之间切换。菜单/配网不在环里，
+    // page_ring 会原样返回当前页，这里据此忽略。
+    if (route == ROUTE_PAGE_NEXT || route == ROUTE_PAGE_PREV) {
+        const page_id_t target =
+            (route == ROUTE_PAGE_NEXT) ? page_ring_next(s_page) : page_ring_prev(s_page);
+        if (target == s_page) return;
+        if (!bsp_lvgl_lock(500)) return;
+        if (s_page == PAGE_STATUS && target == PAGE_WEATHER) {
+            enter_weather_page();
+        } else if (s_page == PAGE_WEATHER && target == PAGE_STATUS) {
+            leave_weather_page();
+        }
+        bsp_lvgl_unlock();
+        return;
+    }
+
+    // 天气页单击 OK：只投递请求，真正的 TLS 在 worker 里跑。
+    if (route == ROUTE_REFRESH_WEATHER) {
+        net_worker_request_refresh();
+        if (bsp_lvgl_lock(500)) {
+            page_weather_refresh(); // 让 "Updating..." 立刻可见
+            bsp_lvgl_unlock();
+        }
         return;
     }
 
@@ -181,7 +260,8 @@ static void process_input(const input_event_t *input) {
     if (route == ROUTE_TO_PROVISION) {
         // 开机头两百毫秒里 wifi_boot 任务可能正在抢射频，此时进配网会 double claim。
         if (s_boot_state != BOOT_DONE) return;
-        // 停服务最坏阻塞两秒，必须在解锁之后做，否则整个 UI 冻住。
+        // 停服务最坏要等网络任务退出再停 Wi-Fi（数秒级），必须在解锁之后做，
+        // 否则整个 UI 冻住。这条路径只在用户主动长按进配网时触发。
         services_pause();
         if (wifi_provision_service_start() != ESP_OK) {
             // 起不来就回常驻服务：宁可配不了网，也不能让设备停在断网状态。
@@ -340,13 +420,47 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
 static void wifi_boot_task(void *arg) {
     (void)arg;
     esp_err_t err = wifi_profile_service_start();
-    if (err != ESP_OK) ESP_LOGE(TAG, "常驻 Wi-Fi 服务启动失败: %s", esp_err_to_name(err));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "常驻 Wi-Fi 服务启动失败: %s", esp_err_to_name(err));
+    } else if (app_time_start(wifi_profile_service_netif()) != ESP_OK) {
+        // 校时失败不阻塞启动：没有时钟时天气会显示 Waiting for time，
+        // 但配网、状态页与离线快照仍然可用。
+        ESP_LOGW(TAG, "SNTP 未能启动:HTTPS 会一直等到时间可用");
+    }
     s_boot_state = BOOT_DONE;
     vTaskDelete(NULL);
 }
 
+// 开机把"配置有没有生效、哪里写错了"写进日志。
+// 本地头文件缺失是合法构建（CI 就是这样），但必须能区分"故意用默认值"与"文件没被编进来"。
+static void log_config_self_check(void) {
+    ESP_LOGI(TAG, "本地配置: %s", app_config_local_present() ? "present" : "absent (defaults)");
+
+    app_config_issue_t issues[APP_CONFIG_ISSUE_MAX];
+    const size_t found =
+        app_config_check(app_config_wifi_table(), app_config_wifi_count(),
+                         app_config_quote_table(), app_config_quote_count(), issues,
+                         APP_CONFIG_ISSUE_MAX);
+    if (found == 0) {
+        ESP_LOGI(TAG, "配置自检: OK (%u presets, %u quotes)",
+                 (unsigned)app_config_wifi_count(), (unsigned)app_config_quote_count());
+        return;
+    }
+
+    ESP_LOGW(TAG, "配置自检: %u 个问题", (unsigned)found);
+    const size_t shown = found < APP_CONFIG_ISSUE_MAX ? found : APP_CONFIG_ISSUE_MAX;
+    for (size_t i = 0; i < shown; i++) {
+        ESP_LOGW(TAG, "  #%u: %s", (unsigned)issues[i].index,
+                 app_config_issue_text(issues[i].code));
+    }
+    if (found > shown) {
+        ESP_LOGW(TAG, "  其余 %u 条省略", (unsigned)(found - shown));
+    }
+}
+
 void app_main(void) {
     ESP_LOGI(TAG, "FoloToy AI Passport BSP demo 启动");
+    log_config_self_check();
     const uint32_t wake_causes = esp_sleep_get_wakeup_causes();
     if (wake_causes & ~(1u << ESP_SLEEP_WAKEUP_UNDEFINED)) {
         ESP_LOGI(TAG, "休眠唤醒原因位图: 0x%02x", (unsigned)wake_causes);

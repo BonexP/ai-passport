@@ -146,7 +146,11 @@ static void publish_status(void) {
     case WIFI_CONN_CONNECTED: {
         s.phase = WIFI_PHASE_CONNECTED;
         const wifi_profile_t *p = wifi_profile_store_at(&s_store, (uint8_t)s.active);
-        if (p != NULL) copy_field(s.ssid, sizeof s.ssid, p->ssid);
+        if (p != NULL) {
+            copy_field(s.ssid, sizeof s.ssid, p->ssid);
+            // 地点随连接状态一起发布：天气 worker 读快照就能拿到，不需要另加锁。
+            s.location = p->location;
+        }
         copy_field(s.ip, sizeof s.ip, s_ip);
         break;
     }
@@ -360,6 +364,12 @@ bool wifi_profile_service_running(void) {
     return s_running;
 }
 
+esp_netif_t *wifi_profile_service_netif(void) {
+    // 只读当前句柄。SNTP 必须在 stop 之前退出（见 main.c 的 services_pause 顺序），
+    // 否则它会拿着一个已经销毁的 netif。
+    return s_running ? s_netif : NULL;
+}
+
 esp_err_t wifi_profile_service_start(void) {
     if (s_running) return ESP_ERR_INVALID_STATE;
 
@@ -388,7 +398,7 @@ esp_err_t wifi_profile_service_start(void) {
     // WIFI_CONN_EV_START 时就会读 store，这里必须先让 store 定型。
     // 不写 `if (count == 0)` 守卫：策略属于已被主机测试覆盖的 wifi_presets.c，
     // 这一层只负责把四种结果翻成日志。
-    wifi_preset_seed_report_t seed = { .added = 0, .skipped = 0 };
+    wifi_preset_seed_report_t seed = { .added = 0, .skipped = 0, .locations_dropped = 0 };
     switch (wifi_preset_seed_builtin(&s_store, &seed)) {
     case WIFI_PRESET_SEED_APPLIED:
         ESP_LOGI(TAG, "注入预设 %u 条（跳过 %u 条）", (unsigned)seed.added,
@@ -400,6 +410,12 @@ esp_err_t wifi_profile_service_start(void) {
     case WIFI_PRESET_SEED_LIBRARY_NOT_EMPTY:
     case WIFI_PRESET_SEED_NOTHING_TO_ADD:
         break; // 正常路径，不刷日志
+    }
+
+    if (seed.locations_dropped > 0) {
+        // 网络仍然可用，只是没有天气。过去这条降级是静默的，日志里查不出原因。
+        ESP_LOGW(TAG, "预设中有 %u 条地点非法：网络保留，天气显示 Location not set",
+                 (unsigned)seed.locations_dropped);
     }
 
     // netif 与事件循环都是进程级单例。以前 esp_netif_init 靠 demo_radio_network_prepare()

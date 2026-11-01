@@ -15,7 +15,10 @@ This repository ships its own SoftAP provisioning flow. The upstream Bluetooth
   `Passport-XXXX` from the last two bytes of the SoftAP MAC.
 - **Address**: `192.168.4.1`, printed on the screen. There is no captive portal, so
   the phone must be pointed at `http://192.168.4.1` by hand.
-- **Submit**: SSID and password as `application/x-www-form-urlencoded`.
+- **Submit**: five fields as `application/x-www-form-urlencoded`: SSID, password, latitude,
+  longitude and place name. The last three are optional; latitude and longitude must be given
+  together, and leaving both empty means "this network has no location", so the weather page
+  shows `Location not set`.
 - **Result**: a valid form is written to NVS with the new record marked active, the
   device answers the request, then reboots and the boot sweep connects. There is no
   APSTA pre-check, so a wrong password shows up on the status page after that
@@ -43,6 +46,9 @@ This repository ships its own SoftAP provisioning flow. The upstream Bluetooth
 - A malformed form returns an error page and writes nothing to NVS.
 - A full profile library fails the save without dropping an existing network:
   losing a working network is worse than not saving this one.
+- Coordinates are parsed as decimal degrees and stored as microdegrees. Out-of-range values
+  (+/-90, +/-180), non-numbers, or only one of the pair return an error page and write nothing.
+  A place name without coordinates is also an error: the name cannot stand on its own.
 
 ## Teardown order
 
@@ -57,15 +63,19 @@ Automated: `./tools/validate.sh --static` covers the state machine, both parsers
 the page builders and the service lifecycle, including a per-step rollback of the
 thirteen start steps and both HTTP handlers.
 
-None of the following has been measured on hardware; all of it belongs under
-`Unverified`:
+Measured on hardware on 2026-10-31 (developer report): flashing; the hotspot appearing and
+being joined from a phone browser; the form served at `192.168.4.1` and submitted; the device
+rebooting and then joining the submitted network; every long-press menu page.
 
-- hotspot visibility and the `Passport-XXXX` name on Android and iOS;
-- opening `192.168.4.1` by hand, including the "no internet" warning;
-- `WIFI_EVENT_AP_STACONNECTED` and `IP_EVENT_AP_STAIPASSIGNED` both appearing;
+Still unmeasured, therefore `Unverified`:
+
+- hotspot visibility and the `Passport-XXXX` name on the other mobile platform, plus the
+  wording of the system "no internet" warning;
+- the new latitude/longitude and place fields: submitting them from a phone and seeing the
+  weather page use that location after the reboot;
+- `WIFI_EVENT_AP_STACONNECTED` and `IP_EVENT_AP_STAIPASSIGNED` observed separately in the log;
 - free heap and largest free block before start, after the AP is up, after httpd
   starts, and after the phone joins;
-- connecting to the submitted network after the reboot;
 - the five-minute timeout handing the radio back to the resident service;
 - ten entry/exit cycles without leaking sockets, tasks or heap.
 

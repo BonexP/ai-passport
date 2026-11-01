@@ -1,52 +1,10 @@
-// main/wifi_presets.c —— 编译期预设表的取值与注入逻辑。
+// main/wifi_presets.c —— 预设表的注入逻辑。
 //
-// 这是全程序唯一 include 本地预设头文件的编译单元，因此凭据在固件里只存在一份，
-// 也不会被任何主机测试的桩意外看到。
+// 数据来自 app_config（唯一包含本地头的编译单元），这里只做"校验 + 写入 + 落盘"。
 #include "wifi_presets.h"
 
 #include <stdbool.h>
 #include <string.h>
-
-// __has_include 到 C23 才进标准，GCC 5+ / Clang 早就作为扩展提供。用
-// `defined(__has_include)` 包一层：在没有这个运算符的编译器上退化成"没有预设"，
-// 而不是语法错误。
-//
-// 两个 #if 必须嵌套，不能拼成 `#if defined(__has_include) && __has_include(...)`：
-// 部分预处理器在解析 && 右侧时仍会把未知的类函数宏当错误。
-//
-// 用引号而不是尖括号：引号形式按"包含者所在目录"查找，正好命中 main/ 下的本地文件；
-// 尖括号要走 -I，CI 与本地可能走出不同结果。
-#if defined(__has_include)
-#if __has_include("wifi_presets.local.h")
-#include "wifi_presets.local.h" // 定义 static const wifi_preset_t WIFI_PRESETS[]
-#define WIFI_PRESETS_PRESENT 1
-#endif
-#endif
-
-#ifndef WIFI_PRESETS_PRESENT
-#define WIFI_PRESETS_PRESENT 0
-#endif
-
-// 空列表绝不写成 `= {}`：C11 不允许零长数组。所以"没有预设"用"不定义数组 + 返回
-// 常量"表达，两个分支都是标准 C11，且 CI 上不会因为文件缺失而编译失败。
-#if WIFI_PRESETS_PRESENT
-size_t wifi_presets_count(void) {
-    // 条数由 sizeof 推出，本地头文件不写（也不可能写错）条数宏。
-    return sizeof WIFI_PRESETS / sizeof WIFI_PRESETS[0];
-}
-
-const wifi_preset_t *wifi_presets_table(void) {
-    return WIFI_PRESETS;
-}
-#else
-size_t wifi_presets_count(void) {
-    return 0;
-}
-
-const wifi_preset_t *wifi_presets_table(void) {
-    return NULL; // count 为 0 时指针无意义；测试据此断言两者一致
-}
-#endif
 
 // 库里是否已有同 SSID 的记录。调用点保证进来时库为空，所以这里的比较对象只可能是
 // 本次刚加进去的预设——用来挡住"同一份本地文件里两行写了同一个网络"。
@@ -59,12 +17,26 @@ static bool ssid_already_present(const wifi_profile_store_t *s, const char *ssid
     return false;
 }
 
+// 把预设里的地点写进 profile。坐标或地点名写错时只丢地点，不丢网络：
+// 网络本身仍然可连，天气退化为"未配置"，这比整条记录被跳过更符合预期。
+// 返回 false 表示"这条预设带了地点，但地点非法被丢弃"，供报告计数。
+static bool apply_location(wifi_profile_t *p, const app_config_wifi_t *preset) {
+    if (!preset->has_location) return true;
+
+    app_location_t loc;
+    if (!app_location_set(&loc, preset->lat_udeg, preset->lon_udeg, preset->place)) {
+        return false;
+    }
+    return wifi_profile_set_location(p, &loc);
+}
+
 wifi_preset_seed_result_t wifi_preset_seed_apply(wifi_profile_store_t *s,
-                                                 const wifi_preset_t *presets, size_t count,
+                                                 const app_config_wifi_t *presets, size_t count,
                                                  wifi_preset_seed_report_t *report) {
     if (report != NULL) {
         report->added = 0;
         report->skipped = 0;
+        report->locations_dropped = 0;
     }
     if (s == NULL) return WIFI_PRESET_SEED_NOTHING_TO_ADD;
 
@@ -75,6 +47,7 @@ wifi_preset_seed_result_t wifi_preset_seed_apply(wifi_profile_store_t *s,
 
     uint8_t added = 0;
     uint8_t skipped = 0;
+    uint8_t locations_dropped = 0;
     for (size_t i = 0; i < count; i++) {
         wifi_profile_t p;
         // 长度与空值规则复用 store 的校验：SSID 空或超 32、密码超 64、显示名 >= 24
@@ -87,6 +60,9 @@ wifi_preset_seed_result_t wifi_preset_seed_apply(wifi_profile_store_t *s,
             skipped++;
             continue;
         }
+        if (!apply_location(&p, &presets[i])) {
+            locations_dropped++;
+        }
         // 槽位满（WIFI_PROFILE_MAX）时 add 返回 FULL，同样只跳过这一条。
         if (wifi_profile_store_add(s, &p) != WIFI_PROFILE_OK) {
             skipped++;
@@ -98,6 +74,7 @@ wifi_preset_seed_result_t wifi_preset_seed_apply(wifi_profile_store_t *s,
     if (report != NULL) {
         report->added = added;
         report->skipped = skipped;
+        report->locations_dropped = locations_dropped;
     }
     // 一条都没写成就不碰 NVS：这让"CI 固件（0 条预设）开机不写 flash"成为结构上的
     // 事实，而不是一条需要人记住的约定。
@@ -110,5 +87,5 @@ wifi_preset_seed_result_t wifi_preset_seed_apply(wifi_profile_store_t *s,
 
 wifi_preset_seed_result_t wifi_preset_seed_builtin(wifi_profile_store_t *s,
                                                    wifi_preset_seed_report_t *report) {
-    return wifi_preset_seed_apply(s, wifi_presets_table(), wifi_presets_count(), report);
+    return wifi_preset_seed_apply(s, app_config_wifi_table(), app_config_wifi_count(), report);
 }

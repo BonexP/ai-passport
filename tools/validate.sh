@@ -36,11 +36,55 @@ run_static_checks() {
         tests/test_key_guard.c -o "${test_dir}/test_key_guard"
     "${test_dir}/test_key_guard"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_wifi_profile.c main/wifi_profile.c \
+        tests/test_app_location.c main/app_location.c \
+        -o "${test_dir}/test_app_location"
+    "${test_dir}/test_app_location"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_config.c main/app_config.c \
+        -o "${test_dir}/test_app_config"
+    "${test_dir}/test_app_config"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_config_check.c main/app_config_check.c main/app_config.c \
+        main/wifi_profile.c main/app_location.c \
+        -o "${test_dir}/test_app_config_check"
+    "${test_dir}/test_app_config_check"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_clock.c main/app_clock.c \
+        -o "${test_dir}/test_app_clock"
+    "${test_dir}/test_app_clock"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_data.c main/app_data.c \
+        -o "${test_dir}/test_app_data"
+    "${test_dir}/test_app_data"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_net_schedule.c main/net_schedule.c \
+        -o "${test_dir}/test_net_schedule"
+    "${test_dir}/test_net_schedule"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_weather_source.c main/weather_source.c main/json_field.c \
+        main/app_location.c \
+        -o "${test_dir}/test_weather_source"
+    "${test_dir}/test_weather_source"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_weather_view.c main/weather_view.c \
+        -o "${test_dir}/test_weather_view"
+    "${test_dir}/test_weather_view"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Itests/demo_stubs -Imain \
+        tests/test_net_http.c main/net_http.c main/http_body.c \
+        tests/demo_stubs/demo_http_client_stack.c \
+        -o "${test_dir}/test_net_http"
+    "${test_dir}/test_net_http"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_net_snapshot.c main/net_snapshot.c \
+        -o "${test_dir}/test_net_snapshot"
+    "${test_dir}/test_net_snapshot"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_wifi_profile.c main/wifi_profile.c main/app_location.c \
         -o "${test_dir}/test_wifi_profile"
     "${test_dir}/test_wifi_profile"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_presets.c main/wifi_presets.c main/wifi_profile.c \
+        main/app_config.c main/app_location.c \
         -o "${test_dir}/test_wifi_presets"
     "${test_dir}/test_wifi_presets"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
@@ -49,20 +93,22 @@ run_static_checks() {
     "${test_dir}/test_wifi_status"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_provision_form.c main/wifi_provision_form.c main/wifi_profile.c \
+        main/app_location.c \
         -o "${test_dir}/test_wifi_provision_form"
     "${test_dir}/test_wifi_provision_form"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_provision_flow.c main/wifi_provision_flow.c \
-        main/wifi_provision_form.c main/wifi_profile.c \
+        main/wifi_provision_form.c main/wifi_profile.c main/app_location.c \
         -o "${test_dir}/test_wifi_provision_flow"
     "${test_dir}/test_wifi_provision_flow"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_provision_html.c main/wifi_provision_html.c \
-        main/wifi_provision_form.c main/wifi_profile.c \
+        main/wifi_provision_form.c main/wifi_profile.c main/app_location.c \
         -o "${test_dir}/test_wifi_provision_html"
     "${test_dir}/test_wifi_provision_html"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_connect_policy.c main/wifi_connect_policy.c main/wifi_profile.c \
+        main/app_location.c \
         -o "${test_dir}/test_wifi_connect_policy"
     "${test_dir}/test_wifi_connect_policy"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
@@ -95,6 +141,10 @@ run_static_checks() {
         tests/test_page_router.c main/page_router.c \
         -o "${test_dir}/test_page_router"
     "${test_dir}/test_page_router"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_page_ring.c main/page_ring.c \
+        -o "${test_dir}/test_page_ring"
+    "${test_dir}/test_page_ring"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
         tests/test_page_status.c main/wifi_status.c main/wifi_status_shared.c \
@@ -108,6 +158,7 @@ run_static_checks() {
         -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
         tests/test_wifi_service.c tests/demo_stubs/demo_wifi_stack.c \
         main/wifi_profile.c main/wifi_presets.c main/wifi_profile_nvs.c \
+        main/app_config.c main/app_location.c \
         main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
         main/wifi_radio_owner.c \
         -Wl,--gc-sections -o "${test_dir}/test_wifi_service"
@@ -119,10 +170,19 @@ run_static_checks() {
         main/wifi_provision_service.c main/wifi_provision_form.c \
         main/wifi_provision_flow.c main/wifi_provision_html.c \
         main/wifi_profile.c main/wifi_profile_nvs.c main/wifi_presets.c \
+        main/app_config.c main/app_location.c \
         main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
         main/wifi_radio_owner.c main/wifi_profile_service.c \
         -Wl,--gc-sections -o "${test_dir}/test_wifi_provision_service"
     "${test_dir}/test_wifi_provision_service"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_http_body.c main/http_body.c \
+        -o "${test_dir}/test_http_body"
+    "${test_dir}/test_http_body"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_json_field.c main/json_field.c \
+        -o "${test_dir}/test_json_field"
+    "${test_dir}/test_json_field"
 
     for demo in audio low_power ble; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \

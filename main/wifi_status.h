@@ -52,6 +52,9 @@ typedef struct {
     uint16_t seq;        // 每次 publish +1，UI 据此判断"变没变"
     char     ssid[WIFI_PROFILE_SSID_MAX]; // 连接/尝试中的 SSID；配网态复用为 AP SSID
     char     ip[WIFI_STATUS_IP_MAX];
+    // 当前 active profile 的地点（含坐标与地点名）。天气 worker 只读快照，
+    // 不直接访问 profile store，避免跨任务读同一个结构。未配置时 has_location=false。
+    app_location_t location;
 } wifi_status_snapshot_t;
 
 typedef struct {

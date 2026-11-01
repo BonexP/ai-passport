@@ -139,6 +139,9 @@ static void test_round_trip_preserves_every_field(void) {
     wifi_profile_store_t writer;
     assert(wifi_profile_store_load(&writer, &kv) == WIFI_PROFILE_OK);
     wifi_profile_t p = make_profile("home", "MyHome-5G", "s3cret-passphrase");
+    app_location_t loc;
+    assert(app_location_set(&loc, 39904200, 116407400, "Beijing"));
+    assert(wifi_profile_set_location(&p, &loc));
     assert(wifi_profile_store_add(&writer, &p) == WIFI_PROFILE_OK);
     assert(wifi_profile_store_save(&writer) == WIFI_PROFILE_OK);
 
@@ -152,6 +155,10 @@ static void test_round_trip_preserves_every_field(void) {
     assert(strcmp(got->name, p.name) == 0);
     assert(strcmp(got->ssid, p.ssid) == 0);
     assert(strcmp(got->password, p.password) == 0);
+    assert(got->location.has_location);
+    assert(got->location.lat_udeg == 39904200);
+    assert(got->location.lon_udeg == 116407400);
+    assert(strcmp(got->location.place, "Beijing") == 0);
 }
 
 static void test_ninth_profile_is_rejected(void) {
@@ -354,6 +361,149 @@ static void test_field_length_boundaries(void) {
     assert(!wifi_profile_set_fields(NULL, "bad", "bad-net", "pw"));
 }
 
+// 手工造一条 v2 记录：模拟"升级前的老固件写下的网络"。
+static size_t make_v2_blob(const char *name, const char *ssid, const char *pass,
+                           uint8_t *buf, size_t cap) {
+    size_t name_len = strlen(name);
+    size_t ssid_len = strlen(ssid);
+    size_t pass_len = strlen(pass);
+    size_t total = WIFI_PROFILE_RECORD_HEADER_V2 + name_len + ssid_len + pass_len;
+
+    assert(total <= cap);
+    assert(name_len < WIFI_PROFILE_NAME_MAX);
+    assert(ssid_len < WIFI_PROFILE_SSID_MAX);
+    assert(pass_len < WIFI_PROFILE_PASS_MAX);
+
+    buf[0] = (uint8_t)WIFI_PROFILE_RECORD_VERSION_V2;
+    buf[1] = (uint8_t)name_len;
+    buf[2] = (uint8_t)ssid_len;
+    buf[3] = (uint8_t)pass_len;
+    memcpy(buf + WIFI_PROFILE_RECORD_HEADER_V2, name, name_len);
+    memcpy(buf + WIFI_PROFILE_RECORD_HEADER_V2 + name_len, ssid, ssid_len);
+    memcpy(buf + WIFI_PROFILE_RECORD_HEADER_V2 + name_len + ssid_len, pass, pass_len);
+    return total;
+}
+
+static void test_location_setter_validates_and_clears(void) {
+    wifi_profile_t p = make_profile("home", "home-net", "pw");
+    app_location_t loc;
+
+    assert(!p.location.has_location); // set_fields 之后默认没有地点
+
+    assert(app_location_set(&loc, 39904200, 116407400, "Beijing"));
+    assert(wifi_profile_set_location(&p, &loc));
+    assert(p.location.has_location);
+    assert(strcmp(p.location.place, "Beijing") == 0);
+
+    // NULL 与 has_location == false 都表示"清除这个网络的地点"。
+    assert(wifi_profile_set_location(&p, NULL));
+    assert(!p.location.has_location);
+    app_location_clear(&loc);
+    assert(wifi_profile_set_location(&p, &loc));
+    assert(!p.location.has_location);
+
+    // 非法地点不得破坏已经写好的那一份。
+    assert(app_location_set(&loc, 1000000, 2000000, "Office"));
+    assert(wifi_profile_set_location(&p, &loc));
+
+    app_location_t bad;
+    memset(&bad, 0, sizeof bad);
+    bad.has_location = true;
+    bad.lat_udeg = APP_LOCATION_LAT_UDEG_MAX + 1;
+    assert(!wifi_profile_set_location(&p, &bad));
+    assert(strcmp(p.location.place, "Office") == 0);
+    assert(p.location.lat_udeg == 1000000);
+
+    // place 缓冲区内没有 NUL：必须拒绝，而不是 strlen 读飞。
+    memset(&bad, 0, sizeof bad);
+    bad.has_location = true;
+    memset(bad.place, 'A', sizeof bad.place);
+    assert(!wifi_profile_set_location(&p, &bad));
+}
+
+static void test_v2_record_is_still_readable(void) {
+    uint8_t blob[64];
+    size_t len = make_v2_blob("home", "home-net", "pw", blob, sizeof blob);
+    assert(len > 0);
+
+    wifi_profile_t decoded;
+    assert(wifi_profile_decode(blob, len, &decoded));
+    assert(strcmp(decoded.name, "home") == 0);
+    assert(strcmp(decoded.ssid, "home-net") == 0);
+    assert(strcmp(decoded.password, "pw") == 0);
+    assert(!decoded.location.has_location); // 老记录没有坐标
+    assert(decoded.location.place[0] == '\0');
+
+    // store 也必须接受 v2，并且下次 save 时升级成 v3。
+    stub_store_t st;
+    stub_init(&st);
+    uint8_t v2 = (uint8_t)WIFI_PROFILE_RECORD_VERSION_V2;
+    stub_put_raw(&st, "ver", &v2, sizeof v2);
+    uint8_t count = 1;
+    stub_put_raw(&st, "n", &count, sizeof count);
+    stub_put_raw(&st, "p0", blob, len);
+
+    wifi_kv_t kv = make_kv(&st);
+    wifi_profile_store_t store;
+    assert(wifi_profile_store_load(&store, &kv) == WIFI_PROFILE_OK);
+    assert(wifi_profile_store_count(&store) == 1);
+    assert(strcmp(wifi_profile_store_at(&store, 0)->ssid, "home-net") == 0);
+    assert(!wifi_profile_store_at(&store, 0)->location.has_location);
+
+    assert(wifi_profile_store_save(&store) == WIFI_PROFILE_OK);
+    uint8_t stored_version = 0;
+    size_t version_len = sizeof stored_version;
+    assert(stub_get(&st, "ver", &stored_version, &version_len) == WIFI_KV_OK);
+    assert(stored_version == (uint8_t)WIFI_PROFILE_RECORD_VERSION);
+
+    wifi_profile_store_t reloaded;
+    assert(wifi_profile_store_load(&reloaded, &kv) == WIFI_PROFILE_OK);
+    assert(wifi_profile_store_count(&reloaded) == 1);
+    assert(strcmp(wifi_profile_store_at(&reloaded, 0)->ssid, "home-net") == 0);
+}
+
+static void test_decode_rejects_inconsistent_location(void) {
+    wifi_profile_t p = make_profile("home", "home-net", "pw");
+    app_location_t loc;
+    assert(app_location_set(&loc, 39904200, 116407400, "Beijing"));
+    assert(wifi_profile_set_location(&p, &loc));
+
+    uint8_t encoded[WIFI_PROFILE_RECORD_MAX];
+    size_t encoded_len = wifi_profile_encode(&p, encoded, sizeof encoded);
+    assert(encoded_len > 0);
+
+    wifi_profile_t decoded;
+    assert(wifi_profile_decode(encoded, encoded_len, &decoded));
+    assert(decoded.location.has_location);
+
+    // 未知 flag 位：版本号没升，就不该出现新语义。
+    uint8_t with_unknown_flag[WIFI_PROFILE_RECORD_MAX];
+    memcpy(with_unknown_flag, encoded, encoded_len);
+    with_unknown_flag[1] |= 0x02u;
+    assert(!wifi_profile_decode(with_unknown_flag, encoded_len, &decoded));
+
+    // 纬度越界：解码入口必须拦住，不能让坏值进 store。
+    uint8_t bad_lat[WIFI_PROFILE_RECORD_MAX];
+    memcpy(bad_lat, encoded, encoded_len);
+    uint32_t raw = (uint32_t)(APP_LOCATION_LAT_UDEG_MAX + 1);
+    bad_lat[2] = (uint8_t)(raw & 0xFFu);
+    bad_lat[3] = (uint8_t)((raw >> 8) & 0xFFu);
+    bad_lat[4] = (uint8_t)((raw >> 16) & 0xFFu);
+    bad_lat[5] = (uint8_t)((raw >> 24) & 0xFFu);
+    assert(!wifi_profile_decode(bad_lat, encoded_len, &decoded));
+
+    // 没有坐标却带地点名：写侧逻辑坏了，按畸形记录处理。
+    uint8_t place_without_location[32] = {0};
+    place_without_location[0] = (uint8_t)WIFI_PROFILE_RECORD_VERSION;
+    place_without_location[1] = 0x00u; // has_location = false
+    place_without_location[11] = 3;    // ssid_len
+    place_without_location[13] = 1;    // place_len
+    memcpy(place_without_location + WIFI_PROFILE_RECORD_HEADER, "net", 3);
+    place_without_location[WIFI_PROFILE_RECORD_HEADER + 3] = 'x';
+    assert(!wifi_profile_decode(place_without_location,
+                                WIFI_PROFILE_RECORD_HEADER + 4, &decoded));
+}
+
 int main(void) {
     test_empty_load_reads_as_empty_library();
     test_round_trip_preserves_every_field();
@@ -365,6 +515,9 @@ int main(void) {
     test_corrupt_records_are_skipped_not_fatal();
     test_save_failure_keeps_ram_cache_intact();
     test_field_length_boundaries();
+    test_location_setter_validates_and_clears();
+    test_v2_record_is_still_readable();
+    test_decode_rejects_inconsistent_location();
     puts("wifi profile store tests: PASS");
     return 0;
 }

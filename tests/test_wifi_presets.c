@@ -1,13 +1,14 @@
 // tests/test_wifi_presets.c —— 预设注入的 host 测试。
 //
-// 不依赖 ESP-IDF，也不依赖本机的 wifi_presets.local.h：所有"有 N 条预设"的场景都通过
+// 不依赖 ESP-IDF，也不依赖本机的 app_config.local.h：所有"有 N 条预设"的场景都通过
 // wifi_preset_seed_apply() 直接传数组验证，因此 CI（预设恒为 0 条）与开发者本机的
-// 结果一致。builtin 只用来验证"表访问器与注入函数连得上"，断言对 0 条与 N 条都成立。
+// 结果一致。builtin 只用来验证"配置访问器与注入函数连得上"，断言对 0 条与 N 条都成立。
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "app_config.h"
 #include "wifi_presets.h"
 #include "wifi_profile.h"
 
@@ -118,9 +119,9 @@ static void test_empty_store_seeds_all_presets(void) {
     wifi_profile_store_t store;
     load_empty(&store, &st);
 
-    const wifi_preset_t presets[] = {
-        {"home", "home-net", "home-pass"},
-        {"work", "work-net", "work-pass"},
+    const app_config_wifi_t presets[] = {
+        {"home", "home-net", "home-pass", false, 0, 0, NULL},
+        {"work", "work-net", "work-pass", false, 0, 0, NULL},
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     assert(wifi_preset_seed_apply(&store, presets, 2, &rep) == WIFI_PRESET_SEED_APPLIED);
@@ -160,9 +161,9 @@ static void test_non_empty_store_is_left_alone(void) {
     assert(wifi_profile_store_load(&loaded, &kv) == WIFI_PROFILE_OK);
     assert(wifi_profile_store_count(&loaded) == 1);
 
-    const wifi_preset_t presets[] = {
-        {"home", "home-net", "home-pass"},
-        {"work", "work-net", "work-pass"},
+    const app_config_wifi_t presets[] = {
+        {.name = "home", .ssid = "home-net", .password = "home-pass"},
+        {.name = "work", .ssid = "work-net", .password = "work-pass"},
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     assert(wifi_preset_seed_apply(&loaded, presets, 2, &rep) ==
@@ -200,10 +201,10 @@ static void test_invalid_field_skips_only_that_entry(void) {
     memset(long_ssid, 'S', sizeof long_ssid);
     long_ssid[33] = '\0'; // 33 字节，超过 32 上限
 
-    const wifi_preset_t presets[] = {
-        {"bad-empty", "", "pw"},              // SSID 为空
-        {"bad-long", long_ssid, "pw"},        // SSID 超长
-        {"good", "good-net", "good-pass"},    // 唯一合法的一条
+    const app_config_wifi_t presets[] = {
+        {.name = "bad-empty", .ssid = "", .password = "pw"},           // SSID 为空
+        {.name = "bad-long", .ssid = long_ssid, .password = "pw"},     // SSID 超长
+        {.name = "good", .ssid = "good-net", .password = "good-pass"}, // 唯一合法的一条
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     assert(wifi_preset_seed_apply(&store, presets, 3, &rep) == WIFI_PRESET_SEED_APPLIED);
@@ -219,9 +220,9 @@ static void test_all_invalid_presets_write_nothing(void) {
     wifi_profile_store_t store;
     load_empty(&store, &st);
 
-    const wifi_preset_t presets[] = {
-        {"a", "", "pw"},
-        {"b", "", "pw"},
+    const app_config_wifi_t presets[] = {
+        {.name = "a", .ssid = "", .password = "pw"},
+        {.name = "b", .ssid = "", .password = "pw"},
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     assert(wifi_preset_seed_apply(&store, presets, 2, &rep) == WIFI_PRESET_SEED_NOTHING_TO_ADD);
@@ -237,9 +238,9 @@ static void test_duplicate_ssid_keeps_the_first(void) {
     wifi_profile_store_t store;
     load_empty(&store, &st);
 
-    const wifi_preset_t presets[] = {
-        {"first", "same-net", "first-pass"},
-        {"second", "same-net", "second-pass"},
+    const app_config_wifi_t presets[] = {
+        {.name = "first", .ssid = "same-net", .password = "first-pass"},
+        {.name = "second", .ssid = "same-net", .password = "second-pass"},
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     assert(wifi_preset_seed_apply(&store, presets, 2, &rep) == WIFI_PRESET_SEED_APPLIED);
@@ -255,9 +256,9 @@ static void test_save_failure_keeps_presets_in_ram_and_recovers(void) {
     wifi_profile_store_t store;
     load_empty(&store, &st);
 
-    const wifi_preset_t presets[] = {
-        {"home", "home-net", "home-pass"},
-        {"work", "work-net", "work-pass"},
+    const app_config_wifi_t presets[] = {
+        {.name = "home", .ssid = "home-net", .password = "home-pass"},
+        {.name = "work", .ssid = "work-net", .password = "work-pass"},
     };
     wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
     st.fail_set = true;
@@ -284,13 +285,15 @@ static void test_library_full_stops_at_max(void) {
     load_empty(&store, &st);
 
     char ssid_pool[10][4];
-    wifi_preset_t presets[10];
+    app_config_wifi_t presets[10];
     for (int i = 0; i < 10; i++) {
         // 手写两位 SSID 而不是 snprintf：%d 的完整取值范围会让 -Wformat-truncation
         // 认为可能截断，而这里开了 -Werror。
         ssid_pool[i][0] = 'n';
         ssid_pool[i][1] = (char)('0' + i);
         ssid_pool[i][2] = '\0';
+        // 整个结构体先清零：新增的地点字段如果留着栈上的垃圾，会被当成有效坐标。
+        memset(&presets[i], 0, sizeof presets[i]);
         presets[i].name = NULL;
         presets[i].ssid = ssid_pool[i];
         presets[i].password = "pw";
@@ -303,11 +306,43 @@ static void test_library_full_stops_at_max(void) {
     assert(rep.skipped == 2);
 }
 
+static void test_preset_location_is_seeded_without_losing_the_network(void) {
+    stub_store_t st;
+    stub_init(&st);
+    wifi_profile_store_t store;
+    load_empty(&store, &st);
+
+    // 第二条的纬度越界：地点应被丢弃，但网络本身必须仍然写进库。
+    const app_config_wifi_t presets[] = {
+        {"home", "home-net", "pw", true, 39904200, 116407400, "Beijing"},
+        {"bad", "bad-geo-net", "pw", true, 200000000, 116407400, "Nowhere"},
+    };
+    wifi_preset_seed_report_t rep = { .added = 0, .skipped = 0 };
+    assert(wifi_preset_seed_apply(&store, presets, 2, &rep) == WIFI_PRESET_SEED_APPLIED);
+    assert(wifi_profile_store_count(&store) == 2);
+    assert(rep.added == 2);
+    assert(rep.skipped == 0);
+
+    const wifi_profile_t *home = wifi_profile_store_at(&store, 0);
+    assert(home != NULL);
+    assert(home->location.has_location);
+    assert(home->location.lat_udeg == 39904200);
+    assert(home->location.lon_udeg == 116407400);
+    assert(strcmp(home->location.place, "Beijing") == 0);
+
+    const wifi_profile_t *bad = wifi_profile_store_at(&store, 1);
+    assert(bad != NULL);
+    assert(strcmp(bad->ssid, "bad-geo-net") == 0);
+    assert(!bad->location.has_location);
+    // 网络保留、地点丢弃，这个降级必须计数，否则日志里查不出"为什么没天气"。
+    assert(rep.locations_dropped == 1);
+}
+
 static void test_builtin_table_matches_contract(void) {
-    size_t n = wifi_presets_count();
+    size_t n = app_config_wifi_count();
     if (n == 0) {
         // CI 与本机没有本地头文件时的路径：表为空，且空库注入不写任何 key。
-        assert(wifi_presets_table() == NULL);
+        assert(app_config_wifi_table() == NULL);
         stub_store_t st;
         stub_init(&st);
         wifi_profile_store_t store;
@@ -319,7 +354,7 @@ static void test_builtin_table_matches_contract(void) {
         return;
     }
     // 开发者本机有预设时的路径：只断言契约，不假设内容。
-    assert(wifi_presets_table() != NULL);
+    assert(app_config_wifi_table() != NULL);
     stub_store_t st;
     stub_init(&st);
     wifi_profile_store_t store;
@@ -339,6 +374,7 @@ int main(void) {
     test_duplicate_ssid_keeps_the_first();
     test_save_failure_keeps_presets_in_ram_and_recovers();
     test_library_full_stops_at_max();
+    test_preset_location_is_seeded_without_losing_the_network();
     test_builtin_table_matches_contract();
     puts("wifi preset seeding tests: PASS");
     return 0;

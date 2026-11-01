@@ -50,10 +50,21 @@ wifi_form_result_t wifi_provision_form_parse(const char *body, size_t len,
 
     char ssid[WIFI_PROFILE_SSID_MAX];
     char pass[WIFI_PROFILE_PASS_MAX];
+    // 经纬度文本很短（最多 9 位整数 + 点 + 6 位小数 + 符号），24 字节绰绰有余；
+    // 与地点名分开缓冲，是为了保留"只有一个为空"这个可诊断的错误。
+    char lat[24];
+    char lon[24];
+    char place[APP_LOCATION_PLACE_MAX];
     ssid[0] = '\0';
     pass[0] = '\0';
+    lat[0] = '\0';
+    lon[0] = '\0';
+    place[0] = '\0';
     bool seen_ssid = false;
     bool seen_pass = false;
+    bool seen_lat = false;
+    bool seen_lon = false;
+    bool seen_place = false;
 
     size_t pos = 0;
     for (;;) {
@@ -80,6 +91,21 @@ wifi_form_result_t wifi_provision_form_parse(const char *body, size_t len,
                 wifi_form_result_t r = decode_value(value, value_len, pass, sizeof pass);
                 if (r != WIFI_FORM_OK) return r;
                 seen_pass = true;
+            } else if (key_len == 3 && memcmp(body + pos, WIFI_PROV_FIELD_LAT, 3) == 0) {
+                if (seen_lat) return WIFI_FORM_ERR_DUPLICATE;
+                wifi_form_result_t r = decode_value(value, value_len, lat, sizeof lat);
+                if (r != WIFI_FORM_OK) return r;
+                seen_lat = true;
+            } else if (key_len == 3 && memcmp(body + pos, WIFI_PROV_FIELD_LON, 3) == 0) {
+                if (seen_lon) return WIFI_FORM_ERR_DUPLICATE;
+                wifi_form_result_t r = decode_value(value, value_len, lon, sizeof lon);
+                if (r != WIFI_FORM_OK) return r;
+                seen_lon = true;
+            } else if (key_len == 5 && memcmp(body + pos, WIFI_PROV_FIELD_PLACE, 5) == 0) {
+                if (seen_place) return WIFI_FORM_ERR_DUPLICATE;
+                wifi_form_result_t r = decode_value(value, value_len, place, sizeof place);
+                if (r != WIFI_FORM_OK) return r;
+                seen_place = true;
             }
             // 其他键：连值都不解码，直接跳过。前端多带一个字段不该让整次配网失败。
         }
@@ -96,6 +122,42 @@ wifi_form_result_t wifi_provision_form_parse(const char *body, size_t len,
         return WIFI_FORM_ERR_TOO_LONG;
     }
     out->has_password = seen_pass && pass[0] != '\0';
+
+    // ---- 地点 ----
+    // 网页表单总会提交 lat/lon/place 三个键（空值也提交），但手工构造的请求可能只带
+    // 其中一个。这里把"成对"作为硬规则：宁可报错，也不猜用户想去哪个半球。
+    if (seen_lat != seen_lon) return WIFI_FORM_ERR_LOCATION_PAIR;
+
+    if (seen_lat) {
+        bool lat_blank = lat[0] == '\0';
+        bool lon_blank = lon[0] == '\0';
+        if (lat_blank != lon_blank) return WIFI_FORM_ERR_LOCATION_PAIR;
+
+        if (lat_blank) {
+            // 两个都空：这个网络没有天气。此时再填地点名说明用户只填了一半。
+            if (place[0] != '\0') return WIFI_FORM_ERR_PLACE;
+            return WIFI_FORM_OK;
+        }
+
+        int32_t lat_udeg = 0;
+        int32_t lon_udeg = 0;
+        if (!app_location_parse_coord(lat, APP_LOCATION_LAT_UDEG_MAX, &lat_udeg) ||
+            !app_location_parse_coord(lon, APP_LOCATION_LON_UDEG_MAX, &lon_udeg)) {
+            return WIFI_FORM_ERR_LOCATION_RANGE;
+        }
+
+        app_location_t loc;
+        if (!app_location_set(&loc, lat_udeg, lon_udeg, place[0] != '\0' ? place : NULL)) {
+            return WIFI_FORM_ERR_PLACE;
+        }
+        if (!wifi_profile_set_location(&out->profile, &loc)) {
+            return WIFI_FORM_ERR_PLACE;
+        }
+        return WIFI_FORM_OK;
+    }
+
+    // 一个坐标键都没有：地点名无处依附。
+    if (place[0] != '\0') return WIFI_FORM_ERR_PLACE;
     return WIFI_FORM_OK;
 }
 
@@ -120,11 +182,15 @@ const char *wifi_provision_form_error_text(wifi_form_result_t result) {
     case WIFI_FORM_OK:               return "";
     case WIFI_FORM_ERR_MISSING_SSID: return "Network name is required";
     case WIFI_FORM_ERR_EMPTY_SSID:   return "Network name cannot be empty";
-    case WIFI_FORM_ERR_TOO_LONG:     return "Name or password is too long";
+    case WIFI_FORM_ERR_TOO_LONG:     return "A field is too long";
     case WIFI_FORM_ERR_BAD_ESCAPE:   return "Malformed form data";
     case WIFI_FORM_ERR_NUL:          return "Invalid character in form data";
     case WIFI_FORM_ERR_DUPLICATE:    return "A field was sent twice";
     case WIFI_FORM_ERR_NO_FIELD:     return "Malformed form data";
+    case WIFI_FORM_ERR_LOCATION_PAIR:  return "Fill latitude and longitude together";
+    case WIFI_FORM_ERR_LOCATION_RANGE: return "Latitude or longitude is invalid";
+    case WIFI_FORM_ERR_PLACE:          return "Location name is invalid or needs coordinates";
+    case WIFI_FORM_ERR_COUNT:          break; // 哨兵，不是真实错误
     }
     return "Malformed form data";
 }

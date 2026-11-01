@@ -198,8 +198,68 @@ static void test_content_length_respects_the_cap(void) {
            WIFI_CL_TOO_LARGE);
 }
 
+static void test_location_fields_are_optional_but_paired(void) {
+    wifi_provision_form_t f;
+
+    // 不带坐标：这个网络没有天气，但配网本身必须成功。
+    assert(parse("ssid=Net", &f) == WIFI_FORM_OK);
+    assert(!f.profile.location.has_location);
+
+    assert(parse("ssid=Net&lat=&lon=&place=", &f) == WIFI_FORM_OK);
+    assert(!f.profile.location.has_location);
+
+    // 完整地点：微度换算由 app_location 负责，这里只验贯通。
+    assert(parse("ssid=Net&lat=39.9042&lon=116.4074&place=Beijing", &f) == WIFI_FORM_OK);
+    assert(f.profile.location.has_location);
+    assert(f.profile.location.lat_udeg == 39904200);
+    assert(f.profile.location.lon_udeg == 116407400);
+    assert(strcmp(f.profile.location.place, "Beijing") == 0);
+
+    // 南半球/西半球：负号必须保留。
+    assert(parse("ssid=Net&lat=-33.5&lon=-70.6", &f) == WIFI_FORM_OK);
+    assert(f.profile.location.lat_udeg == -33500000);
+    assert(f.profile.location.lon_udeg == -70600000);
+    assert(f.profile.location.place[0] == '\0');
+
+    // 只给一个键、或一个空一个非空，都算"没成对"。
+    assert(parse("ssid=Net&lat=39.9", &f) == WIFI_FORM_ERR_LOCATION_PAIR);
+    assert(parse("ssid=Net&lat=39.9&lon=", &f) == WIFI_FORM_ERR_LOCATION_PAIR);
+    assert(parse("ssid=Net&lat=&lon=116.4", &f) == WIFI_FORM_ERR_LOCATION_PAIR);
+}
+
+static void test_location_values_are_validated(void) {
+    wifi_provision_form_t f;
+
+    assert(parse("ssid=Net&lat=abc&lon=116.4", &f) == WIFI_FORM_ERR_LOCATION_RANGE);
+    assert(parse("ssid=Net&lat=39.9&lon=", &f) == WIFI_FORM_ERR_LOCATION_PAIR);
+    assert(parse("ssid=Net&lat=91&lon=0", &f) == WIFI_FORM_ERR_LOCATION_RANGE);
+    assert(parse("ssid=Net&lat=-91&lon=0", &f) == WIFI_FORM_ERR_LOCATION_RANGE);
+    assert(parse("ssid=Net&lat=0&lon=181", &f) == WIFI_FORM_ERR_LOCATION_RANGE);
+    assert(parse("ssid=Net&lat=0&lon=-181", &f) == WIFI_FORM_ERR_LOCATION_RANGE);
+
+    // 地点名必须有坐标可依附。
+    assert(parse("ssid=Net&lat=&lon=&place=Beijing", &f) == WIFI_FORM_ERR_PLACE);
+    assert(parse("ssid=Net&place=Beijing", &f) == WIFI_FORM_ERR_PLACE);
+
+    // 地点名里的控制字符由 app_location 拒绝。
+    assert(parse("ssid=Net&lat=1&lon=2&place=a%0Ab", &f) == WIFI_FORM_ERR_PLACE);
+
+    // 24 字节地点名超过 23 字节上限。
+    char body[128];
+    size_t n = 0;
+    memcpy(body, "ssid=Net&lat=1&lon=2&place=", 27);
+    n = 27;
+    memset(body + n, 'P', 24);
+    n += 24;
+    body[n] = '\0';
+    assert(parse(body, &f) == WIFI_FORM_ERR_TOO_LONG);
+
+    // 同一个键出现两次同样拒绝。
+    assert(parse("ssid=Net&lat=1&lon=2&lat=3", &f) == WIFI_FORM_ERR_DUPLICATE);
+}
+
 static void test_error_text_is_present_for_every_code(void) {
-    for (int code = WIFI_FORM_OK; code <= WIFI_FORM_ERR_NO_FIELD; code++) {
+    for (int code = WIFI_FORM_OK; code < WIFI_FORM_ERR_COUNT; code++) {
         const char *text = wifi_provision_form_error_text((wifi_form_result_t)code);
         assert(text != NULL);
         if (code != WIFI_FORM_OK) assert(text[0] != '\0');
@@ -222,6 +282,8 @@ int main(void) {
     test_pair_without_equals_is_rejected();
     test_field_names_are_case_sensitive();
     test_trailing_ampersand_is_tolerated();
+    test_location_fields_are_optional_but_paired();
+    test_location_values_are_validated();
     test_content_length_accepts_plain_numbers();
     test_content_length_rejects_non_numbers();
     test_content_length_respects_the_cap();

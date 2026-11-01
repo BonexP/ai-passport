@@ -4,9 +4,13 @@
 
 # Task Breakdown
 
-P1.1-P1.10 are implemented and covered by host tests; provisioning has not been measured on hardware. This file decomposes the phases in
-`project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each task can
-be taken on a topic branch and reviewed on its own.
+P1.1-P1.10 are implemented and covered by host tests. The device test on 2026-10-31 covered
+flashing, provisioning, joining the submitted network and every long-press menu page. Three
+provisioning items remain unmeasured: the heap watermark while the AP is up, the five-minute
+timeout handing the radio back, and resource recovery after ten entry/exit cycles. P2.1's
+bounded response buffer and P2.2's field extractor are implemented and covered by host tests.
+This file decomposes the phases in `project-plan.md` into atomic tasks with verifiable
+acceptance criteria, so that each task can be taken on a topic branch and reviewed on its own.
 
 ## 1. Rules that apply to every task
 
@@ -44,7 +48,7 @@ local toolchain exists.
 | P1.5 | Wi-Fi worker task wiring to the real ESP-IDF APIs | Build passes; runtime reading of free heap and largest free block recorded |
 | P1.6 | Provisioning path decision: **SoftAP** (on-board hotspot plus a web form), no Bluetooth and no companion mini-program | Done; decision recorded in `project-plan.md` section 4.1, implementation split into P1.9 and P1.10 |
 | P1.7 | Status page UI, redesigned rather than copied from a demo | Own layout and key handling described in the delivery report; screen result marked Unverified until seen on the device |
-| P1.8 | Preset credential seeding: `main/wifi_presets.local.h` (commit the ignore entry before the file exists) with the `__has_include` fallback in `main/wifi_presets.c`; `add` then `save` when the store is empty | Five host cases: empty-store seeding, non-empty store untouched, zero presets writing no key at all, invalid entries skipped one by one, and a failed save kept in RAM that recovers on the next boot; CI firmware carries no presets |
+| P1.8 | Preset credential seeding: `main/app_config.local.h` (commit the ignore entry before the file exists) with the `__has_include` fallback in `main/app_config.c`; `wifi_presets` keeps only the seeding behaviour; `add` then `save` when the store is empty | Five host cases: empty-store seeding, non-empty store untouched, zero presets writing no key at all, invalid entries skipped one by one, and a failed save kept in RAM that recovers on the next boot; CI firmware carries no presets |
 | P1.9 | SoftAP provisioning service: open hotspot, minimal HTTP form, save then reboot | Form accepts input; malformed input gets an error page and writes nothing; a successful save answers before rebooting; no APSTA pre-check, so a wrong password shows up on the status page after the reboot; no captive portal. Device result Unverified until measured |
 | P1.10 | Mode switch and entry point between provisioning and networking: hold UP on the status page to start provisioning, leave with a long press on OK or after five idle minutes, then restore the service | No residue after the switch (driver, netif and event handlers all unregistered); entry gesture and timeout exit described in the delivery report |
 
@@ -58,13 +62,19 @@ slice (see `project-plan.md` sections 7 and 9, item 6).
 
 | ID | Task | Acceptance |
 | --- | --- | --- |
-| P2.1 | Bounded HTTP client wrapper: static buffer, timeout, no heap allocation per request | Host tests for buffer boundaries and truncation handling; request path is device-only and marked Unverified |
+| P2.0 | Compile-time config: `app_config.local.h` (Wi-Fi presets with coordinates and place, quote watchlist) plus the built-in eight symbols | Without a local file presets are empty and the watchlist falls back to the eight defaults; contract tests pass; boot self-check logs each invalid item (fields, coordinates, place, duplicates, count limits) |
+| P2.1 | Bounded HTTP client wrapper: static buffer, timeout, no heap allocation per request | Host tests for buffer boundaries and truncation handling; a 2xx response declaring a non-JSON Content-Type is a failure; request path is device-only and marked Unverified |
 | P2.2 | Minimal JSON extraction for known-shape responses | Host tests using captured sample payloads; no dynamic tree, no unbounded recursion |
 | P2.3 | Weather provider decision, recorded with evidence | Provider, endpoint, key handling and rate limit documented; unverified parts listed |
-| P2.4 | Weather page with timestamp and stale marker | Own UI; stale snapshot shown when the request fails |
+| P2.4 | Weather page with timestamp and stale marker | Own UI; old data kept with its timestamp when the request fails; temperature +/-100 C and weather code 0-99, out-of-range is a parse failure |
 | P2.5 | Endpoint health checks over ICMP for a user-editable list | List persisted in NVS; host test for schedule logic |
 | P2.6 | mDNS browsing with unicast fallback | Fallback path documented; device result Unverified |
-| P2.7 | Offline snapshot persistence | Snapshot written after each successful fetch; boot with a stale snapshot renders the stale marker |
+| P2.7 | Offline snapshot persistence | Snapshot written on content change or every 30 minutes; boot with a stale snapshot shows its saved time and the offline marker |
+
+Progress: P2.0 config, the P2.1 buffer and `net_http` transport, P2.2 extraction, the P2.3
+Open-Meteo decision, the P2.4 weather page and the P2.7 offline snapshot are implemented with
+host tests. P2.5 and P2.6 (endpoint health, mDNS) have not started, and neither the weather
+path nor the new provisioning fields have been measured on hardware.
 
 ## 5. P3: stock quotes
 
@@ -73,7 +83,7 @@ slice (see `project-plan.md` sections 7 and 9, item 6).
 | P3.1 | Watchlist record: eight symbols with display names | Host test for ordering and label handling |
 | P3.2 | Quote provider decision, recorded with evidence | Response shape, size, encoding and rate limit documented; keyless path preferred |
 | P3.3 | Quote parser and data model | Host tests against captured payloads, including malformed input |
-| P3.4 | Polling scheduler: trading hours, backoff, no polling while the screen is off | Host tests for schedule transitions across both markets |
+| P3.4 | Polling scheduler: interval polling while the page is visible, failure backoff; session gating deferred to P4 | Backoff and visibility covered by host tests (`net_schedule` already does) |
 | P3.5 | Quote page: eight rows, name, price, change percent, change amount, turnover | Own UI; sign formatting covered by host test; rendering marked Unverified until seen |
 
 ## 6. P4: polish

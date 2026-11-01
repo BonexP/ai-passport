@@ -27,7 +27,24 @@ static size_t bounded_strlen(const char *s, size_t cap) {
     return n;
 }
 
-// 记录本身是否可编码：每个字段都在缓冲区内以 NUL 结尾，且长度符合 802.11 上限。
+// 记录里的经纬度是小端 int32。C 的负数→无符号是模运算（有定义），
+// ESP32 与主机都是补码，反方向按位还原即可；不依赖 float 或端序宏。
+static void put_i32le(uint8_t *p, int32_t value) {
+    uint32_t raw = (uint32_t)value;
+    p[0] = (uint8_t)(raw & 0xFFu);
+    p[1] = (uint8_t)((raw >> 8) & 0xFFu);
+    p[2] = (uint8_t)((raw >> 16) & 0xFFu);
+    p[3] = (uint8_t)((raw >> 24) & 0xFFu);
+}
+
+static int32_t get_i32le(const uint8_t *p) {
+    uint32_t raw = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+                   ((uint32_t)p[3] << 24);
+    return (int32_t)raw;
+}
+
+// 记录本身是否可编码：每个字段都在缓冲区内以 NUL 结尾，长度符合 802.11 上限，
+// 地点结构自洽。地点的规则只维护在 app_location.c 一处。
 static bool fields_valid(const wifi_profile_t *p) {
     if (p == NULL) return false;
     size_t name_len = bounded_strlen(p->name, sizeof p->name);
@@ -38,6 +55,7 @@ static bool fields_valid(const wifi_profile_t *p) {
     if (pass_len >= sizeof p->password) return false;
     if (ssid_len == 0 || ssid_len > 32) return false;
     if (pass_len > 64) return false;
+    if (!app_location_is_valid(&p->location)) return false;
     return true;
 }
 
@@ -47,13 +65,22 @@ size_t wifi_profile_encode(const wifi_profile_t *p, uint8_t *buf, size_t cap) {
     size_t name_len = bounded_strlen(p->name, sizeof p->name);
     size_t ssid_len = bounded_strlen(p->ssid, sizeof p->ssid);
     size_t pass_len = bounded_strlen(p->password, sizeof p->password);
-    size_t total = WIFI_PROFILE_RECORD_HEADER + name_len + ssid_len + pass_len;
+    // 未配置地点时不写 place，保证"没有 place_len 却挂着地点名"的记录不会出现。
+    size_t place_len = p->location.has_location
+                         ? bounded_strlen(p->location.place, sizeof p->location.place)
+                         : 0;
+    size_t total = WIFI_PROFILE_RECORD_HEADER + name_len + ssid_len + pass_len + place_len;
     if (total > cap || total > WIFI_PROFILE_RECORD_MAX) return 0;
 
     buf[0] = (uint8_t)WIFI_PROFILE_RECORD_VERSION;
-    buf[1] = (uint8_t)name_len;
-    buf[2] = (uint8_t)ssid_len;
-    buf[3] = (uint8_t)pass_len;
+    buf[1] = p->location.has_location ? 0x01u : 0x00u;
+    // 没有地点时坐标写 0：结构体里的残留值不该进入 blob。
+    put_i32le(buf + 2, p->location.has_location ? p->location.lat_udeg : 0);
+    put_i32le(buf + 6, p->location.has_location ? p->location.lon_udeg : 0);
+    buf[10] = (uint8_t)name_len;
+    buf[11] = (uint8_t)ssid_len;
+    buf[12] = (uint8_t)pass_len;
+    buf[13] = (uint8_t)place_len;
 
     uint8_t *cursor = buf + WIFI_PROFILE_RECORD_HEADER;
     memcpy(cursor, p->name, name_len);
@@ -61,13 +88,16 @@ size_t wifi_profile_encode(const wifi_profile_t *p, uint8_t *buf, size_t cap) {
     memcpy(cursor, p->ssid, ssid_len);
     cursor += ssid_len;
     memcpy(cursor, p->password, pass_len);
+    cursor += pass_len;
+    if (place_len > 0) {
+        memcpy(cursor, p->location.place, place_len);
+    }
     return total;
 }
 
-bool wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out) {
-    if (buf == NULL || out == NULL) return false;
-    if (len < WIFI_PROFILE_RECORD_HEADER) return false;
-    if (buf[0] != WIFI_PROFILE_RECORD_VERSION) return false;
+// v2 记录：只有三段字符串。老固件写下的记录必须继续可读，否则升级即丢网络。
+static bool decode_v2(const uint8_t *buf, size_t len, wifi_profile_t *out) {
+    if (len < WIFI_PROFILE_RECORD_HEADER_V2) return false;
 
     size_t name_len = buf[1];
     size_t ssid_len = buf[2];
@@ -75,8 +105,45 @@ bool wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out) {
     if (name_len >= WIFI_PROFILE_NAME_MAX) return false;
     if (ssid_len == 0 || ssid_len >= WIFI_PROFILE_SSID_MAX) return false;
     if (pass_len >= WIFI_PROFILE_PASS_MAX) return false;
-    // 长度自洽：记录必须正好由头部加三段字符串构成，多一个字节都当作损坏。
-    if (len != WIFI_PROFILE_RECORD_HEADER + name_len + ssid_len + pass_len) return false;
+    if (len != WIFI_PROFILE_RECORD_HEADER_V2 + name_len + ssid_len + pass_len) return false;
+
+    memset(out, 0, sizeof *out);
+    const uint8_t *cursor = buf + WIFI_PROFILE_RECORD_HEADER_V2;
+    memcpy(out->name, cursor, name_len);
+    cursor += name_len;
+    memcpy(out->ssid, cursor, ssid_len);
+    cursor += ssid_len;
+    memcpy(out->password, cursor, pass_len);
+    // location 已在 memset 里清零：老记录没有地点，天气页据此显示未配置。
+    return true;
+}
+
+bool wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out) {
+    if (buf == NULL || out == NULL || len < 1) return false;
+    if (buf[0] == WIFI_PROFILE_RECORD_VERSION_V2) return decode_v2(buf, len, out);
+    if (buf[0] != WIFI_PROFILE_RECORD_VERSION) return false;
+    if (len < WIFI_PROFILE_RECORD_HEADER) return false;
+
+    // 只认识 bit0。将来加别的 flag 时必须同时升级版本号，否则这里会把
+    // "新固件写的记录"当成损坏——那正是版本号存在的意义。
+    uint8_t flags = buf[1];
+    if ((flags & 0xFEu) != 0) return false;
+    bool has_location = (flags & 0x01u) != 0;
+
+    size_t name_len = buf[10];
+    size_t ssid_len = buf[11];
+    size_t pass_len = buf[12];
+    size_t place_len = buf[13];
+    if (name_len >= WIFI_PROFILE_NAME_MAX) return false;
+    if (ssid_len == 0 || ssid_len >= WIFI_PROFILE_SSID_MAX) return false;
+    if (pass_len >= WIFI_PROFILE_PASS_MAX) return false;
+    if (place_len >= APP_LOCATION_PLACE_MAX) return false;
+    // 没有坐标却带地点名，说明写侧逻辑坏了，不猜意图。
+    if (!has_location && place_len != 0) return false;
+    // 长度自洽：记录必须正好由头部加四段字符串构成，多一个字节都当作损坏。
+    if (len != WIFI_PROFILE_RECORD_HEADER + name_len + ssid_len + pass_len + place_len) {
+        return false;
+    }
 
     memset(out, 0, sizeof *out);
     const uint8_t *cursor = buf + WIFI_PROFILE_RECORD_HEADER;
@@ -85,6 +152,23 @@ bool wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out) {
     memcpy(out->ssid, cursor, ssid_len);
     cursor += ssid_len;
     memcpy(out->password, cursor, pass_len);
+    cursor += pass_len;
+
+    if (has_location) {
+        // 记录里的 place 没有结尾 NUL，必须搬进本地缓冲再交给字符串接口，
+        // 否则 strlen 会读出记录边界。
+        char place[APP_LOCATION_PLACE_MAX];
+        memset(place, 0, sizeof place);
+        if (place_len > 0) {
+            memcpy(place, cursor, place_len);
+        }
+        int32_t lat = get_i32le(buf + 2);
+        int32_t lon = get_i32le(buf + 6);
+        // 用 app_location_set 统一校验范围与控制字符，规则只维护一处。
+        if (!app_location_set(&out->location, lat, lon, place_len > 0 ? place : NULL)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -108,6 +192,23 @@ bool wifi_profile_set_fields(wifi_profile_t *p, const char *name, const char *ss
     return true;
 }
 
+bool wifi_profile_set_location(wifi_profile_t *p, const app_location_t *loc) {
+    if (p == NULL) return false;
+
+    app_location_t next;
+    app_location_clear(&next);
+
+    if (loc != NULL && loc->has_location) {
+        // 先校验原结构（含 place 的 NUL 结尾），再规范化拷贝；直接传 loc->place
+        // 给 app_location_set 会对其 strlen，未终结的缓冲会被读出边界。
+        if (!app_location_is_valid(loc)) return false;
+        if (!app_location_set(&next, loc->lat_udeg, loc->lon_udeg, loc->place)) return false;
+    }
+
+    p->location = next;
+    return true;
+}
+
 wifi_profile_result_t wifi_profile_store_load(wifi_profile_store_t *s, const wifi_kv_t *kv) {
     if (s == NULL || kv == NULL || kv->get == NULL) return WIFI_PROFILE_ERR_INVALID;
 
@@ -119,8 +220,10 @@ wifi_profile_result_t wifi_profile_store_load(wifi_profile_store_t *s, const wif
     size_t len = sizeof version;
     wifi_kv_result_t r = s->kv.get(s->kv.ctx, KEY_VERSION, &version, &len);
     if (r == WIFI_KV_ERR_FAIL) return WIFI_PROFILE_ERR_STORAGE;
-    if (r == WIFI_KV_OK && version != WIFI_PROFILE_RECORD_VERSION) {
+    if (r == WIFI_KV_OK && version != WIFI_PROFILE_RECORD_VERSION &&
+        version != WIFI_PROFILE_RECORD_VERSION_V2) {
         // 未知版本：不猜字段含义，也不擦除。空库比误读的库安全。
+        // v2 必须继续接受：升级固件不能让用户已经配好的网络消失。
         return WIFI_PROFILE_OK;
     }
 

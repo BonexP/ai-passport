@@ -1,0 +1,23 @@
+// main/app_config.local.h.example —— 本地配置模板。
+//
+// 用法：复制为 main/app_config.local.h，按需填写。真实文件被 .gitignore 忽略，
+// 不会进入版本库；这个模板本身不含任何真实凭据。
+//
+// 每一段都是可选的：删掉某个 #define，该段就退回内置默认值。
+//   - APP_CONFIG_WIFI  缺失 → 没有任何预设 Wi-Fi（与 CI 构建一致）
+//   - APP_CONFIG_QUOTES 缺失 → 使用产品默认的 8 个标的
+//
+// 注意：
+//   - 字符串会明文进入固件 .rodata，拿到设备就能提取；这不是保密方案。
+//   - 坐标是微度：39.9042° → 39904200。has_location = false 时坐标与地点名被忽略。
+//   - 地点名必须短于 24 字节；本阶段 UI 只保证 ASCII 字形。
+//   - 末尾那个逗号是故意的：它让数组初始化兼容"一条"与"多条"两种展开结果。
+
+#define APP_CONFIG_WIFI \
+    { .name = "Home", .ssid = "YOUR_SSID", .password = "YOUR_PASSWORD", \
+      .has_location = true, .lat_udeg = 39904200, .lon_udeg = 116407400, \
+      .place = "Beijing" },
+
+#define APP_CONFIG_QUOTES \
+    { .symbol = "NVDA", .label = "NVIDIA" }, \
+    { .symbol = "TSLA", .label = "TESLA" },

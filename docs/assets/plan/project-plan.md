@@ -5,7 +5,7 @@
 # Project Plan: All-in-One Firmware for FoloToy AI Passport
 
 Scope: custom firmware built on the `FoloToy/ai-passport` baseline (ESP-IDF 5.5.3).
-Status: P1 in progress. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build; provisioning has not been measured on hardware.
+Status: P1 complete. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build. The device test on 2026-10-31 covered flashing, provisioning, joining the submitted network and every long-press menu page; three provisioning items remain unmeasured, see `task-breakdown.md`. P2 is in progress: the compile-time config, per-profile coordinates and place name, SNTP, the HTTPS transport, the weather page and the offline snapshot are implemented with host tests; the weather page and the new provisioning fields have not been measured on hardware.
 Research date: 2026-10-27, against upstream `main` at `006c227`.
 
 Bottom line: the feature set is feasible without an external helper service. The only
@@ -61,7 +61,7 @@ are all built-in ESP-IDF 5.5.3 components, so no new managed dependency is requi
 
 Mechanism, using only built-in APIs:
 
-1. Store N profiles in NVS as `{name, ssid, password}` plus an `active_index`. Only *which*
+1. Store N profiles in NVS as `{name, ssid, password, location}` plus an `active_index`. Only *which*
    network succeeded is kept, never *when*: the board has no RTC, so a timestamp would not
    survive a reboot, and `active_index` is the only input the state machine needs.
 2. On boot, try `active_index` first; on failure iterate the list with a per-profile timeout
@@ -76,6 +76,10 @@ Mechanism, using only built-in APIs:
    to show the hotspot name and address, while captive-portal probing differs enough across
    phones that verifying it costs far more than it returns.
 5. Preset credentials seed the first connection only; see below.
+6. Each profile carries a latitude/longitude pair and a place name (record v3; v2 stays
+   readable). Weather follows whichever network is connected; a network without coordinates
+   shows `Location not set`. The provisioning form keeps coordinates optional but requires the
+   pair to be filled together.
 
 The state machine is pure logic and must be extracted into host-testable code, per upstream
 policy. This is the same pattern the `xiaonuo-jianlu` reference application uses.
@@ -96,13 +100,14 @@ may carry personal networks, up to `WIFI_PROFILE_MAX` (8):
 - A single invalid entry (empty SSID, more than 32 bytes, a password over 64, a display name
   over 23) skips just that entry rather than leaving the device with no networks at all.
 
-Mechanism: preset values live in `main/wifi_presets.local.h`, which must be listed in
-`.gitignore`, and that entry has to be committed before the file is ever created - once a path
-has been in the index, it stays in the scan forever. The tracked `main/wifi_presets.h` only
-declares the accessor contract; the `__has_include` fallback lives in `main/wifi_presets.c`, so
-credentials compile into a single translation unit and neither tests nor the service layer can
-see them. Kconfig was rejected because it has no arrays and because `$`, `"` and `\` in a
-password need escaping.
+Mechanism: preset values and the quote watchlist live together in
+`main/app_config.local.h`, which must be listed in `.gitignore`, and that entry has to be
+committed before the file is ever created - once a path has been in the index, it stays in the
+scan forever. The tracked `main/app_config.h` only declares the accessor contract; the
+`__has_include` fallback lives in `main/app_config.c`, so credentials compile into a single
+translation unit and neither tests nor the service layer can see them. `wifi_presets` keeps only
+the seeding behaviour. Kconfig was rejected because it has no arrays and because `$`, `"` and
+`\` in a password need escaping.
 
 Three hard boundaries:
 
@@ -118,12 +123,18 @@ Three hard boundaries:
 
 ### 4.2 Weather: feasible, simplest network feature
 
-A single HTTPS GET returning a small JSON document (well under 10 KB), parsed with the
-built-in JSON component into a bounded static buffer. Poll interval of five minutes or more.
+A single HTTPS GET returning a small JSON document (about 0.5 KB for current conditions),
+parsed by the minimal field extractor into a bounded static buffer.
 
-Open point: which provider. A free tier with an API key (for example QWeather) works, but
-the key then lives in NVS on the device. A keyless public endpoint avoids that but has weaker
-stability guarantees. To be decided before implementation.
+Decided: **Open-Meteo** (`api.open-meteo.com`, no key). The request uses
+`current=temperature_2m,weather_code&timezone=auto`; `timezone=auto` makes the returned
+observation time local, so no timezone table is needed. The location comes from the active
+profile's coordinates. The keyless endpoint avoids building a second provisioning path for a
+secret; a keyed free tier (QWeather and similar) would leave the key in NVS and still need
+editing and revocation paths.
+
+Cadence: fetch only while the weather page is visible, every 10 minutes after a success, with
+exponential backoff from 30 seconds up to 5 minutes after a failure.
 
 ### 4.3 Stock quotes: feasible, data volume is the constraint
 
@@ -220,7 +231,7 @@ press on the same budget.
 | --- | --- | --- |
 | P0 | ESP-IDF 5.5.3 on the Linux host; `./tools/validate.sh` green on the untouched baseline | Build and host tests pass, merged image produced |
 | P1 | Wi-Fi profile manager: NVS storage, preset seeding, boot iteration, state machine with host tests, SoftAP provisioning, status page | Reconnects and switches profiles automatically; presets seeded on first boot; phone can provision over the web form; host tests pass |
-| P2 | HTTP/TLS client with bounded buffers, minimal JSON, weather page, endpoint health page | Shows stale snapshot when offline |
+| P2 | Compile-time config, per-profile coordinates, SNTP, HTTPS client with bounded buffers, minimal JSON, weather page and offline snapshot; endpoint health page pending | Shows stale snapshot when offline |
 | P3 | Stock page with eight rows and a host-tested polling scheduler | Correct data during trading hours |
 | P4 | Polish: CJK font, sleep policy, battery readout, offline queue | Overnight battery measurement |
 
@@ -230,7 +241,8 @@ Unverified.
 
 ## 9. Open questions
 
-1. Weather provider: keyed free tier in NVS, or keyless public endpoint?
+1. ~~Weather provider~~ Settled: **Open-Meteo** (no key), location from the active profile's
+   coordinates (2026-11-01).
 2. Stock provider: keyless endpoint sufficient, or does the keyed API justify the extra
    provisioning work?
 3. Audio: in scope this cycle or deferred to a later phase after the network stack is stable?
@@ -242,6 +254,14 @@ Unverified.
    reboots, and the boot sweep verifies it. A wrong password is only discovered after that
    reboot; in exchange there is one interface to maintain instead of two. The heap headroom
    under AP-only provisioning has not been measured in this repository; see section 7.
+7. SNTP is settled: TLS certificate validity needs a trustworthy clock, so the device syncs time
+   after joining Wi-Fi. With an invalid clock it refuses to request rather than skipping
+   certificate checks. Snapshots are written on content change or every 30 minutes, so the
+   24 KB NVS partition is not worn out.
+8. Config self-check is settled: boot validates the local config and logs each problem (Wi-Fi
+   fields, coordinates, place, watchlist, duplicates, count limits). Weather values are bounded
+   to +/-100 C and WMO 0-99, and a 2xx response that declares a non-JSON Content-Type is treated
+   as a failure (a missing header falls through to the parser).
 
 ## 10. Evidence index
 

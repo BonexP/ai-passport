@@ -31,6 +31,9 @@ static void test_form_page_matches_the_parser_contract(void) {
     assert(strstr(page, "method=\"post\"") != NULL);
     assert(strstr(page, "name=\"" WIFI_PROV_FIELD_SSID "\"") != NULL);
     assert(strstr(page, "name=\"" WIFI_PROV_FIELD_PASS "\"") != NULL);
+    assert(strstr(page, "name=\"" WIFI_PROV_FIELD_LAT "\"") != NULL);
+    assert(strstr(page, "name=\"" WIFI_PROV_FIELD_LON "\"") != NULL);
+    assert(strstr(page, "name=\"" WIFI_PROV_FIELD_PLACE "\"") != NULL);
     assert(strstr(page, "action=\"" WIFI_PROV_SAVE_PATH "\"") != NULL);
     assert(strstr(page, "viewport") != NULL);
 }

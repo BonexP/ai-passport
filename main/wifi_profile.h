@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "app_location.h"
+
 // ---- 容量与字段上限 ----
 //
 // NVS 分区只有 24 KB（partitions.csv: 0x9000/0x6000）。单条记录最长 128 B，
@@ -24,22 +26,31 @@
 
 // 序列化格式版本。字段布局一旦变化必须递增；读到未知版本时按"没有可用 profile"
 // 处理，不猜测、更不擦除（擦除由用户显式触发）。
-// v2：只保留三个字符串字段。曾经有过 last_ok_seq 与 flags，两者都没有任何消费方
-// ——记录头因此由 9 字节缩到 4 字节，一条记录的字节数就是它真正承载的信息。
-#define WIFI_PROFILE_RECORD_VERSION 2u
+// v2：只有三个字符串字段，记录头 4 字节。
+// v3：增加地点（flags + 经纬度微度 + place），记录头 14 字节。
+//     v2 仍然可读：升级固件不会让已经配好的网络消失，老记录的坐标视为未设置。
+#define WIFI_PROFILE_RECORD_VERSION 3u
+#define WIFI_PROFILE_RECORD_VERSION_V2 2u
 
-// 记录头长度：版本 + name/ssid/pass 三个长度。
-#define WIFI_PROFILE_RECORD_HEADER 4u
+// v2 记录头：版本 + name/ssid/pass 三个长度。
+#define WIFI_PROFILE_RECORD_HEADER_V2 4u
+
+// v3 记录头：版本 + flags + lat(4) + lon(4) + name/ssid/pass/place 四个长度。
+#define WIFI_PROFILE_RECORD_HEADER 14u
 
 // 单条记录的容量上界，用来在栈上开临时缓冲。
 #define WIFI_PROFILE_RECORD_MAX                                              \
     (WIFI_PROFILE_RECORD_HEADER + (WIFI_PROFILE_NAME_MAX - 1) +              \
-     (WIFI_PROFILE_SSID_MAX - 1) + (WIFI_PROFILE_PASS_MAX - 1))
+     (WIFI_PROFILE_SSID_MAX - 1) + (WIFI_PROFILE_PASS_MAX - 1) +             \
+     (APP_LOCATION_PLACE_MAX - 1))
 
 typedef struct {
-    char name[WIFI_PROFILE_NAME_MAX];
-    char ssid[WIFI_PROFILE_SSID_MAX];
-    char password[WIFI_PROFILE_PASS_MAX];
+    char           name[WIFI_PROFILE_NAME_MAX];
+    char           ssid[WIFI_PROFILE_SSID_MAX];
+    char           password[WIFI_PROFILE_PASS_MAX];
+    // 该网络对应的地点：连接哪个网络，天气就用哪个坐标。
+    // has_location == false 表示这个网络没有配置地点，天气页显示 Location not set。
+    app_location_t location;
 } wifi_profile_t;
 
 // ---- 键值存储抽象 ----
@@ -110,17 +121,30 @@ int8_t                 wifi_profile_store_active(const wifi_profile_store_t *s);
 // 用显式字节布局而不是 memcpy 整个结构体：padding、编译器差异和跨固件版本都会让
 // 直拷的 blob 静默读错，而错位的密码字段只会表现为"连不上"，极难排查。
 //
-//   0  u8   version
-//   1  u8   name_len
-//   2  u8   ssid_len
-//   3  u8   pass_len
-//   4  ...  name | ssid | password   （无结尾 NUL）
+// v3（encode 只会写这个版本）：
+//   0  u8   version = 3
+//   1  u8   flags          bit0 = has_location
+//   2  i32  lat_udeg       小端，无地点时写 0
+//   6  i32  lon_udeg       小端，无地点时写 0
+//   10 u8   name_len
+//   11 u8   ssid_len
+//   12 u8   pass_len
+//   13 u8   place_len      has_location == false 时必须为 0
+//   14 ...  name | ssid | password | place   （无结尾 NUL）
+//
+// v2（只读兼容，decode 接受）：
+//   0 u8 version = 2 | 1 name_len | 2 ssid_len | 3 pass_len | 4 ... 三段字符串
 //
 // encode 返回写入字节数，0 表示记录非法或缓冲不足。
-// decode 校验版本、长度自洽与字段上限，任一不满足都返回 false。
+// decode 校验版本、长度自洽与字段上限，任一不满足都返回 false；
+// 解码 v2 记录时 location 被清空（has_location == false）。
 size_t wifi_profile_encode(const wifi_profile_t *p, uint8_t *buf, size_t cap);
 bool   wifi_profile_decode(const uint8_t *buf, size_t len, wifi_profile_t *out);
 
-// 一次性填好三个字符串字段并校验长度。
+// 一次性填好三个字符串字段并校验长度。地点被清空（等 set_location 再写）。
 bool wifi_profile_set_fields(wifi_profile_t *p, const char *name, const char *ssid,
                              const char *password);
+
+// 写入地点。loc 为 NULL 或 loc->has_location == false 时清除地点。
+// 返回 false 表示 loc 非法（坐标越界、地点名超长或含控制字符），此时原地点保持不变。
+bool wifi_profile_set_location(wifi_profile_t *p, const app_location_t *loc);
