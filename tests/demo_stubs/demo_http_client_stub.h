@@ -22,6 +22,6 @@ void demo_http_client_reset(void);
 // 覆盖下一次请求的行为。结构体按值拷贝，调用方不必保持生命周期。
 void demo_http_client_set_scenario(const demo_http_client_scenario_t *scenario);
 
-// 用来断言"每条路径都销毁了客户端"。
+// 用来断言"每条路径都清理了客户端"。
 int demo_http_client_init_count(void);
-int demo_http_client_destroy_count(void);
+int demo_http_client_cleanup_count(void);

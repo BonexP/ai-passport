@@ -45,7 +45,7 @@ static void test_success_streams_the_body_in_chunks(void) {
     assert(len == 11);
     assert(strcmp(body, "hello world") == 0);
     assert(demo_http_client_init_count() == 1);
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_oversized_body_is_truncated_and_flagged(void) {
@@ -58,7 +58,7 @@ static void test_oversized_body_is_truncated_and_flagged(void) {
            HTTP_RESULT_TRUNCATED);
     assert(len == 3);
     assert(strcmp(body, "012") == 0);
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_non_2xx_is_reported_even_with_a_body(void) {
@@ -69,7 +69,7 @@ static void test_non_2xx_is_reported_even_with_a_body(void) {
     size_t len = 0;
     assert(net_http_get("https://example.test/x", body, sizeof body, &len, 1000) ==
            HTTP_RESULT_HTTP_STATUS);
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_empty_2xx_body_is_ok(void) {
@@ -98,7 +98,7 @@ static void test_open_timeout_is_distinguished(void) {
     char body[8];
     assert(net_http_get("https://example.test/x", body, sizeof body, NULL, 1000) ==
            HTTP_RESULT_TIMEOUT);
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_open_failure_is_transport(void) {
@@ -113,7 +113,7 @@ static void test_open_failure_is_transport(void) {
     char body[8];
     assert(net_http_get("https://example.test/x", body, sizeof body, NULL, 1000) ==
            HTTP_RESULT_TRANSPORT);
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_header_failure_is_transport(void) {
@@ -129,7 +129,7 @@ static void test_header_failure_is_transport(void) {
     assert(net_http_get("https://example.test/x", body, sizeof body, NULL, 1000) ==
            HTTP_RESULT_TRANSPORT);
     // 取头失败也必须关掉连接并销毁客户端。
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_read_error_discards_the_partial_body(void) {
@@ -149,7 +149,7 @@ static void test_read_error_discards_the_partial_body(void) {
     assert(net_http_get("https://example.test/x", body, sizeof body, &len, 1000) ==
            HTTP_RESULT_TRANSPORT);
     assert(len == 0); // 半截内容不能被当成完整响应
-    assert(demo_http_client_destroy_count() == 1);
+    assert(demo_http_client_cleanup_count() == 1);
 }
 
 static void test_content_type_guards_successful_responses(void) {
@@ -212,7 +212,7 @@ static void test_invalid_arguments_do_not_touch_the_network(void) {
     assert(net_http_get("https://example.test/x", body, 0, &len, 1000) ==
            HTTP_RESULT_TRANSPORT);
     assert(demo_http_client_init_count() == 0);
-    assert(demo_http_client_destroy_count() == 0);
+    assert(demo_http_client_cleanup_count() == 0);
 }
 
 int main(void) {
