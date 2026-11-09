@@ -211,6 +211,7 @@ run_static_checks() {
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_provision_html_form.c \
         main/wifi_provision_html.c main/wifi_provision_form.c main/wifi_scan_list.c \
+        main/app_location.c main/wifi_profile.c \
         -o "${test_dir}/test_wifi_provision_html_form"
     "${test_dir}/test_wifi_provision_html_form"
 
