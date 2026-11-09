@@ -10,6 +10,7 @@
 #include "demo_test_stubs.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
 /* STA 的 9 个步骤，顺序与 wifi_profile_service_start() 一致。 */
@@ -69,7 +70,10 @@ static esp_err_t next_step(void) {
     if (s_ap_session) {
         // 配网启动序列在起 AP 之前会先切到 STA 扫一次；那几步不属于启动阶梯
         // （扫描失败不致命），所以既不计数也不参与 test_ap_fail_at 的编号。
-        if (s_mode == WIFI_MODE_STA) return ESP_OK;
+        if (s_mode == WIFI_MODE_STA) {
+            fprintf(stderr, "    skip (sta mode)\n");
+            return ESP_OK;
+        }
         return test_ap_next_step();
     }
     test_wifi_step++;
@@ -79,6 +83,8 @@ static esp_err_t next_step(void) {
 
 unsigned test_ap_next_step(void) {
     test_ap_step++;
+    fprintf(stderr, "    ap_step=%u (session=%d mode=%d)\n", test_ap_step, (int)s_ap_session,
+            s_mode);
     if (test_ap_fail_at != 0 && test_ap_step == test_ap_fail_at) return test_wifi_fail_err;
     return ESP_OK;
 }
