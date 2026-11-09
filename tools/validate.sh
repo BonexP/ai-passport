@@ -190,6 +190,19 @@ run_static_checks() {
         tests/test_json_field.c main/json_field.c \
         -o "${test_dir}/test_json_field"
     "${test_dir}/test_json_field"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_net_snapshot_store.c main/net_snapshot_store.c main/net_snapshot.c \
+        -Wl,--gc-sections -o "${test_dir}/test_net_snapshot_store"
+    "${test_dir}/test_net_snapshot_store"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_net_worker.c \
+        main/net_snapshot_store.c main/net_snapshot.c main/net_schedule.c \
+        main/app_data.c main/app_data_shared.c main/app_location.c \
+        main/wifi_status.c main/wifi_status_shared.c \
+        -Wl,--gc-sections -o "${test_dir}/test_net_worker"
+    "${test_dir}/test_net_worker"
 
     for demo in audio low_power ble; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
