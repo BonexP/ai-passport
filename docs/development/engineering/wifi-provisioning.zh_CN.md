@@ -26,9 +26,29 @@
 | `main/wifi_provision_service.c` | AP netif、`esp_http_server`、两个 handler、worker、重启 |
 | `main/wifi_provision_flow.c` | 会话状态机；纯逻辑，有主机测试 |
 | `main/wifi_provision_form.c` | urlencoded 正文与 `Content-Length` 解析 |
-| `main/wifi_provision_html.c` | 静态表单页与结果页 |
+| `main/wifi_provision_html.c` | 静态表单页、动态列表页与结果页 |
+| `main/wifi_scan_list.c` | 扫描结果的去重、排序与截断；纯逻辑，有主机测试 |
 | `main/wifi_radio_owner.c` | 射频持有者：联网或配网，二选一 |
 | `main/page_status.c` | 渲染 `Setup: <ssid>`、`Open <ip>` 与客户端数 |
+
+## 扫描周围网络（起 AP 之前）
+
+表单里的网络名可以点选，不必全靠手打。代价是**必须在起 AP 之前扫**：
+
+- 纯 AP 模式下 `esp_wifi_scan_start()` 不被支持——IDF 文档写明只有 station 或
+  station/AP 共存模式支持它。
+- APSTA 下扫描会把软热点拽到 STA 正在跳的信道（ESP32-C3 datasheet 原文），已经连上来的
+  手机可能掉线，而掉线的正是正在填表的那台。
+
+所以启动序列在 `esp_wifi_init` 之后、`esp_wifi_set_mode(WIFI_MODE_AP)` 之前插了一段
+`set_mode(STA) → start → scan → stop`。此刻热点还没起来，手机不可能被踢。
+
+- **非致命**：任何一步失败都只让列表为空，表单退回手打 SSID，配网照常可用。
+- 列表上限 16 条；同名 SSID 只留最强的一次广播；按 RSSI 从强到弱排序；隐藏网络
+  （广播里没有名字）直接跳过。
+- 代价：进配网多约 2 秒（一次全信道扫描）、常驻约 640 B 列表与约 1.6 KB 驱动记录；
+  页面缓冲从 1 KB 提到 4 KB，httpd 栈从 5120 提到 6144。
+- 页面上**没有"重新扫描"**：AP-only 下没有第二次扫描能力，要刷新只能退出配网再进。
 
 ## HTTP 输入边界
 
@@ -61,7 +81,10 @@ socket 或回调。
 - `WIFI_EVENT_AP_STACONNECTED` 与 `IP_EVENT_AP_STAIPASSIGNED` 都会触发，且只有后者推进客户端数；
 - 启动前、AP 起来后、httpd 起来后、手机连上后四个时间点的 free heap 与最大连续块；
 - 5 分钟超时后射频是否真的交还给常驻服务；
-- 连续 10 次进出后 socket、任务与堆是否回到基线。
+- 连续 10 次进出后 socket、任务与堆是否回到基线；
+- 预扫是否真的不需要 STA netif（本实现把扫描当作驱动层操作；失败会降级成"没有列表"）；
+- 一次扫描是否落在 2 秒量级；
+- 手机浏览器对 `<datalist>` 的渲染（iOS Safari 与 Android Chrome 表现不同）。
 
 ## 上游蓝牙配网参考（历史）
 

@@ -2,10 +2,21 @@
 #include "wifi_provision_html.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
-// 表单页：只有一个表单、两个输入框、一个按钮。没有 JS、没有外部资源——
+#include "wifi_scan_list.h"
+
+// 动态列表要插在这对标记之间。静态页留一对空标记，正好是"没扫到网络"的降级形态。
+#define WIFI_SCAN_DATALIST_OPEN "<datalist id=\"nets\">"
+#define WIFI_SCAN_DATALIST_END "</datalist>"
+
+// 表单页：只有一个表单、五个输入框、一个按钮。没有 JS、没有外部资源——
 // 设备热点上没有外网，任何 CDN 引用都会让页面卡在加载状态。
+//
+// 这里刻意保留一个空的 <datalist>：静态页是"没有扫到任何网络"时的降级形态，
+// 与加扫描之前逐字节等价；扫到网络时由 wifi_provision_html_form 在同一对
+// 标记之间填入 <option>，两段拼接共用同一份标记，不会走样。
 static const char FORM_PAGE[] =
     "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
@@ -21,8 +32,9 @@ static const char FORM_PAGE[] =
     "<h2>Connect this device</h2>"
     "<form method=\"post\" action=\"" WIFI_PROV_SAVE_PATH "\">"
     "<label for=\"ssid\">Network name</label>"
-    "<input id=\"ssid\" name=\"" WIFI_PROV_FIELD_SSID "\" maxlength=\"32\""
+    "<input id=\"ssid\" name=\"" WIFI_PROV_FIELD_SSID "\" maxlength=\"32\" list=\"nets\""
     " autocapitalize=\"none\" autocorrect=\"off\" required>"
+    "<datalist id=\"nets\">" WIFI_SCAN_DATALIST_END
     "<label for=\"pass\">Password</label>"
     "<input id=\"pass\" name=\"" WIFI_PROV_FIELD_PASS "\" type=\"password\""
     " maxlength=\"64\">"
@@ -152,5 +164,38 @@ size_t wifi_provision_html_escape(char *buf, size_t cap, const char *text) {
     writer_t w = { .buf = buf, .cap = cap, .len = 0, .overflow = false };
     buf[0] = '\0';
     w_esc(&w, text);
+    return writer_finish(&w);
+}
+
+size_t wifi_provision_html_form(char *buf, size_t cap, const wifi_scan_list_t *list) {
+    if (buf == NULL || cap == 0) return 0;
+    buf[0] = '\0';
+
+    const char *close = strstr(FORM_PAGE, WIFI_SCAN_DATALIST_END);
+    if (close == NULL) return 0; // 标记被改坏了：宁可报错，也不要拼出半页
+    const size_t head_len = (size_t)(close - FORM_PAGE);
+    const size_t total = sizeof FORM_PAGE - 1;
+    const size_t tail_len = total - head_len;
+
+    if (list == NULL || list->count == 0) {
+        // 没有列表时与静态页逐字节一致：降级路径不该有第二种样子。
+        if (total + 1 > cap) return 0;
+        memcpy(buf, FORM_PAGE, total + 1);
+        return total;
+    }
+
+    writer_t w = { .buf = buf, .cap = cap, .len = 0, .overflow = false };
+    w_raw(&w, FORM_PAGE, head_len);
+    for (size_t i = 0; i < list->count; i++) {
+        w_str(&w, "<option value=\"");
+        w_esc(&w, list->items[i].ssid);
+        w_str(&w, "\">");
+        w_esc(&w, list->items[i].ssid);
+        char dbm[16];
+        snprintf(dbm, sizeof dbm, " (%d dBm)", (int)list->items[i].rssi);
+        w_str(&w, dbm);
+        w_str(&w, "</option>");
+    }
+    w_raw(&w, FORM_PAGE + head_len, tail_len);
     return writer_finish(&w);
 }

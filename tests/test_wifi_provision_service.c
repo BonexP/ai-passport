@@ -47,6 +47,7 @@ static void reset_world(void) {
     test_time_us = 0;
     test_restarts = 0;
     test_auto_ack = false;
+    test_scan_reset();
 }
 
 static void start_ok(void) {
@@ -101,6 +102,40 @@ static void test_get_serves_the_form(void) {
     assert(uri != NULL && uri->method == HTTP_GET);
     assert(uri->handler(test_httpd_req()) == ESP_OK);
     assert(strstr(test_httpd_last_type, "text/html") != NULL);
+
+    size_t form_len = 0;
+    const char *form = wifi_provision_form_page(&form_len);
+    assert(test_httpd_last_len == form_len);
+    assert(memcmp(test_httpd_last_body, form, form_len) == 0);
+}
+
+static void test_scan_results_show_up_in_the_form(void) {
+    reset_world();
+    test_scan_add_ap("OfficeNet", -74);
+    test_scan_add_ap("HomeNet", -48); // 故意后加，验证排序而不是插入顺序
+    start_ok();
+
+    // 预扫不该占用启动阶梯：13 步仍然是 13 步，否则回滚测试的编号会整体错位。
+    assert(test_ap_step == 13);
+    // 扫完必须已经切回 AP，否则拆栈时那次 STA 的 start 会被漏掉。
+    assert(test_wifi_mode() == WIFI_MODE_AP);
+
+    assert(find_uri("/")->handler(test_httpd_req()) == ESP_OK);
+    const char *home = strstr(test_httpd_last_body, "<option value=\"HomeNet\">");
+    const char *office = strstr(test_httpd_last_body, "<option value=\"OfficeNet\">");
+    assert(home != NULL && office != NULL);
+    assert(home < office); // 信号强的排在前面
+    assert(strstr(test_httpd_last_body, "HomeNet (-48 dBm)") != NULL);
+}
+
+static void test_scan_failure_falls_back_to_the_static_form(void) {
+    reset_world();
+    test_scan_result = ESP_FAIL;
+    start_ok();
+
+    // 扫描失败不影响配网：热点照起，表单退回手输。
+    assert(test_ap_step == 13);
+    assert(find_uri("/")->handler(test_httpd_req()) == ESP_OK);
 
     size_t form_len = 0;
     const char *form = wifi_provision_form_page(&form_len);
@@ -316,6 +351,8 @@ int main(void) {
     test_ap_is_open_single_client_on_channel_one();
     test_start_announces_setup_on_the_status_page();
     test_get_serves_the_form();
+    test_scan_results_show_up_in_the_form();
+    test_scan_failure_falls_back_to_the_static_form();
     test_content_length_missing_is_411();
     test_content_length_not_a_number_is_400();
     test_content_length_too_large_is_413_without_reading();

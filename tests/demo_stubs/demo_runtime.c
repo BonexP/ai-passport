@@ -94,16 +94,46 @@ lv_timer_t *lv_timer_create(void (*cb)(lv_timer_t *), unsigned period, void *dat
 }
 void lv_timer_delete(lv_timer_t *t) { (void)t; }
 
-// WiFi scan result getters: report one deterministic fake network so the
-// demo's result screen renders identically on every host run.
-static const wifi_ap_record_t s_stub_ap = { .rssi = -48,
-    .ssid = {'A', 'I', '-', 'P', 'a', 's', 's', 'p', 'o', 'r', 't'},
-    .primary = 6 };
-esp_err_t esp_wifi_scan_get_ap_num(uint16_t *count) { *count = 1; return ESP_OK; }
+// WiFi scan: 默认"扫描成功但一个都没扫到"，也就是配网页退回手输 SSID 的降级形态。
+// 需要列表的用例用 test_scan_add_ap() 投喂，顺序即驱动返回顺序。
+esp_err_t test_scan_result = ESP_OK;
+unsigned  test_scan_ap_count;
+static wifi_ap_record_t s_test_scan_aps[16];
+
+void test_scan_reset(void) {
+    test_scan_result = ESP_OK;
+    test_scan_ap_count = 0;
+    memset(s_test_scan_aps, 0, sizeof s_test_scan_aps);
+}
+
+void test_scan_add_ap(const char *ssid, int rssi) {
+    if (ssid == NULL || test_scan_ap_count >= 16) return;
+    wifi_ap_record_t *rec = &s_test_scan_aps[test_scan_ap_count];
+    memset(rec, 0, sizeof *rec);
+    size_t len = strlen(ssid);
+    if (len > sizeof rec->ssid) len = sizeof rec->ssid;
+    memcpy(rec->ssid, ssid, len);
+    rec->rssi = rssi;
+    test_scan_ap_count++;
+}
+
+esp_err_t esp_wifi_scan_start(const void *cfg, bool blocking) {
+    (void)cfg;
+    (void)blocking;
+    return test_scan_result;
+}
+
+esp_err_t esp_wifi_scan_get_ap_num(uint16_t *count) {
+    if (count != NULL) *count = (uint16_t)test_scan_ap_count;
+    return ESP_OK;
+}
+
 esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records) {
-    if (*count < 1) { *count = 0; return ESP_OK; }
-    *count = 1;
-    records[0] = s_stub_ap;
+    if (count == NULL || records == NULL) return ESP_ERR_INVALID_ARG;
+    uint16_t n = (uint16_t)test_scan_ap_count;
+    if (n > *count) n = *count;
+    for (uint16_t i = 0; i < n; i++) records[i] = s_test_scan_aps[i];
+    *count = n;
     return ESP_OK;
 }
 esp_err_t esp_sleep_disable_wakeup_source(int source) { (void)source; return ESP_OK; }

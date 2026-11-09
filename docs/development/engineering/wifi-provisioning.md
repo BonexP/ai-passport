@@ -33,9 +33,34 @@ This repository ships its own SoftAP provisioning flow. The upstream Bluetooth
 | `main/wifi_provision_service.c` | AP netif, `esp_http_server`, both handlers, worker, restart |
 | `main/wifi_provision_flow.c` | session state machine; pure logic, host-tested |
 | `main/wifi_provision_form.c` | urlencoded body and `Content-Length` parsing |
-| `main/wifi_provision_html.c` | static form page and the result pages |
+| `main/wifi_provision_html.c` | static form page, dynamic list page and the result pages |
+| `main/wifi_scan_list.c` | dedupe, ordering and truncation of scan results; pure logic, host-tested |
 | `main/wifi_radio_owner.c` | one radio owner: networking or provisioning, never both |
 | `main/page_status.c` | renders `Setup: <ssid>`, `Open <ip>`, client count |
+
+## Scanning nearby networks (before the AP starts)
+
+The form offers the surrounding networks as suggestions so the SSID rarely has to be typed.
+The price is that the scan **has to happen before the AP is up**:
+
+- `esp_wifi_scan_start()` is not supported in AP-only mode; the IDF guide says only station
+  or station/AP coexistence mode supports it.
+- In APSTA mode a scan drags the SoftAP onto the channel the station is hopping through
+  (ESP32-C3 datasheet), which can drop the phone that is filling in the form.
+
+So the startup sequence inserts `set_mode(STA) -> start -> scan -> stop` between
+`esp_wifi_init` and `esp_wifi_set_mode(WIFI_MODE_AP)`. At that moment the hotspot does not
+exist yet, so no phone can be dropped.
+
+- **Never fatal**: any failure leaves the list empty, the form falls back to typing the SSID,
+  and provisioning still works.
+- At most 16 entries; one row per SSID (the strongest advertisement wins); sorted by RSSI;
+  hidden networks (no SSID in the beacon) are skipped.
+- Cost: roughly two extra seconds when entering provisioning, about 640 B for the list and
+  1.6 KB for the driver records, a page buffer raised from 1 KB to 4 KB, and an httpd stack
+  raised from 5120 to 6144.
+- There is **no rescan button**: AP-only mode has no second scan, so refreshing the list means
+  leaving provisioning and entering it again.
 
 ## HTTP input boundaries
 
@@ -78,7 +103,11 @@ Still unmeasured, therefore `Unverified`:
 - free heap and largest free block before start, after the AP is up, after httpd
   starts, and after the phone joins;
 - the five-minute timeout handing the radio back to the resident service;
-- ten entry/exit cycles without leaking sockets, tasks or heap.
+- ten entry/exit cycles without leaking sockets, tasks or heap;
+- whether the pre-scan really needs no STA netif (this implementation treats scanning as a
+  driver-level operation; a failure degrades to "no list");
+- the scan itself landing in the two-second range;
+- how phone browsers render the `<datalist>` (iOS Safari and Android Chrome differ).
 
 ## Upstream Bluetooth reference (historical)
 

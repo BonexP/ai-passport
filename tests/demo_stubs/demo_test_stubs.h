@@ -147,6 +147,13 @@ esp_err_t esp_wifi_scan_start(const void *cfg, bool blocking);
 esp_err_t esp_wifi_scan_stop(void);
 esp_err_t esp_wifi_scan_get_ap_num(uint16_t *count);
 esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records);
+
+/* 配网预扫的可控结果。默认 ESP_OK + 0 条记录，也就是"扫描成功但一个都没扫到"，
+   表单退回静态页；用例按需投喂记录来验证列表渲染。 */
+extern esp_err_t test_scan_result;
+extern unsigned  test_scan_ap_count;
+void             test_scan_reset(void);
+void             test_scan_add_ap(const char *ssid, int rssi);
 esp_err_t esp_event_handler_instance_register(esp_event_base_t base, int32_t id,
     void (*callback)(void *, esp_event_base_t, int32_t, void *), void *arg,
     esp_event_handler_instance_t *instance);

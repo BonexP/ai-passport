@@ -38,6 +38,7 @@
 #include "wifi_provision_form.h"
 #include "wifi_provision_html.h"
 #include "wifi_radio_owner.h"
+#include "wifi_scan_list.h"
 #include "wifi_status.h"
 #include "wifi_status_shared.h"
 
@@ -51,7 +52,7 @@ static const char *TAG = "wifi_prov";
 #define PROV_STOP_TIMEOUT_MS  5000u
 #define PROV_SAVE_WAIT_MS     3000u
 #define PROV_RECV_RETRIES     2u
-#define PROV_PAGE_MAX         1024u
+#define PROV_PAGE_MAX         4096u
 #define PROV_CONTENT_LEN_MAX  20u /* 19 位数字足够；再长必然是超上限 */
 /* 与 ap_cfg.ap.max_connection 同一个值：计数以"分配出去的地址"为准，
    上限就是热点允许的客户端数，重复的 DHCP 事件不会把计数顶穿。 */
@@ -113,6 +114,11 @@ static bool s_wifi_started;
 /* handler 串行执行，可以安全复用；放静态是为了不占 4 KB 任务栈。 */
 static char s_body[WIFI_PROV_BODY_MAX + 1];
 static char s_page[PROV_PAGE_MAX];
+
+/* 进配网时扫一次的结果。扫描在起 AP 之前完成，之后只读。
+   驱动给的记录结构在设备上约 100 B 一条，放在栈上会吃掉一半任务栈。 */
+static wifi_scan_list_t  s_scan;
+static wifi_ap_record_t  s_scan_records[WIFI_SCAN_LIST_MAX];
 
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -218,8 +224,15 @@ static esp_err_t send_error_page(httpd_req_t *req, const char *status, wifi_form
 }
 
 static esp_err_t handle_get(httpd_req_t *req) {
+    const char *page;
     size_t len = 0;
-    const char *page = wifi_provision_form_page(&len);
+    if (s_scan.count == 0) {
+        // 没有列表就发静态页：与加扫描之前逐字节一致，也省一次拼装。
+        page = wifi_provision_form_page(&len);
+    } else {
+        len = wifi_provision_html_form(s_page, sizeof s_page, &s_scan);
+        page = s_page;
+    }
     if (page == NULL || len == 0) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no page");
     }
@@ -460,6 +473,45 @@ static void service_task(void *arg) {
 // 5 分钟超时会先关热点、再等 stop() 回收 worker，这段时间用户已经回到可用状态。
 bool wifi_provision_service_active(void) { return s_session_open; }
 
+// 起 AP 之前扫一次周围网络。
+//
+// 为什么只能在这里扫：纯 AP 模式下 esp_wifi_scan_start() 不被支持；而 APSTA 下扫描
+// 会把软热点拽到 STA 正在跳的信道，已经连上的手机会掉线。此刻热点还没起来、手机
+// 也还没连上，是唯一没有副作用的时间窗。
+//
+// 全程非致命：任何一步失败都只让列表为空，表单退化成手打 SSID，配网照常可用。
+// 注意这里**不**负责把模式切回 AP —— 那是启动序列的下一步，重复切会多占一步编号。
+static void scan_for_networks(void) {
+    wifi_scan_list_clear(&s_scan);
+
+    if (esp_wifi_set_mode(WIFI_MODE_STA) != ESP_OK) {
+        ESP_LOGW(TAG, "扫描前切 STA 失败，跳过扫描");
+        return;
+    }
+    if (esp_wifi_start() != ESP_OK) {
+        ESP_LOGW(TAG, "扫描用的 STA 起不来，跳过扫描");
+        return;
+    }
+    // 从这里开始驱动是跑着的：无论后面成败，拆栈都必须能把它停掉。
+    s_wifi_started = true;
+
+    if (esp_wifi_scan_start(NULL, true) != ESP_OK) {
+        ESP_LOGW(TAG, "扫描失败，表单将只剩手输");
+    } else {
+        uint16_t num = WIFI_SCAN_LIST_MAX;
+        if (esp_wifi_scan_get_ap_records(&num, s_scan_records) == ESP_OK) {
+            for (uint16_t i = 0; i < num; i++) {
+                (void)wifi_scan_list_add(&s_scan, (const char *)s_scan_records[i].ssid,
+                                         s_scan_records[i].rssi);
+            }
+        }
+    }
+
+    (void)esp_wifi_stop();
+    s_wifi_started = false;
+    ESP_LOGI(TAG, "扫描到 %u 个网络", (unsigned)s_scan.count);
+}
+
 esp_err_t wifi_provision_service_start(void) {
     if (s_active) return ESP_ERR_INVALID_STATE;
     if (wifi_profile_service_running()) {
@@ -518,6 +570,10 @@ esp_err_t wifi_provision_service_start(void) {
 
     err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
     if (err != ESP_OK) goto fail;
+
+    // 非致命：扫不到就只是没有可选列表，表单照旧能手打 SSID。
+    scan_for_networks();
+
     err = esp_wifi_set_mode(WIFI_MODE_AP);
     if (err != ESP_OK) goto fail;
 
@@ -550,7 +606,7 @@ esp_err_t wifi_provision_service_start(void) {
     http_cfg.lru_purge_enable = true;
     http_cfg.recv_wait_timeout = 2;
     http_cfg.send_wait_timeout = 5;
-    http_cfg.stack_size = 5120; // 1 KB 正文 + 1 KB 页面 + snprintf，4096 偏紧
+    http_cfg.stack_size = 6144; // 1 KB 正文 + 最多 4 KB 页面 + snprintf，5120 偏紧
     err = httpd_start(&s_httpd, &http_cfg);
     if (err != ESP_OK) goto fail;
 

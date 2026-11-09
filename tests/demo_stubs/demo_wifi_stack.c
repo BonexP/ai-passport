@@ -10,6 +10,7 @@
 #include "demo_test_stubs.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
 /* STA 的 9 个步骤，顺序与 wifi_profile_service_start() 一致。 */
@@ -64,6 +65,11 @@ typedef struct {
 
 static test_handler_t s_handlers[TEST_HANDLER_SLOTS];
 static unsigned       s_handler_count;
+
+// 扫描阶段：set_mode(STA) 与紧跟的那次 start 不占启动阶梯。
+// 不能用"当前是不是 STA 模式"来判断 —— 复位后 s_mode 本来就是 STA，
+// 那样会把 netif/handlers/init 这些真步骤一起漏掉。
+static bool s_scan_pending;
 
 static esp_err_t next_step(void) {
     if (s_ap_session) return test_ap_next_step();
@@ -166,6 +172,12 @@ esp_err_t esp_wifi_set_storage(int storage) {
 
 esp_err_t esp_wifi_set_mode(int mode) {
     s_mode = mode;
+    // 配网启动序列里的这一次 set_mode(STA) 是为预扫服务的，不是启动阶梯的一步。
+    if (s_ap_session && mode == WIFI_MODE_STA) {
+        s_scan_pending = true;
+        return ESP_OK;
+    }
+    s_scan_pending = false;
     return next_step();
 }
 
@@ -184,6 +196,11 @@ esp_err_t esp_wifi_set_config(int iface, const wifi_config_t *cfg) {
 }
 
 esp_err_t esp_wifi_start(void) {
+    if (s_ap_session && s_scan_pending) {
+        s_scan_pending = false; // 预扫用的那次 start：驱动真起来了，但不占阶梯编号
+        s_wifi_running = true;
+        return ESP_OK;
+    }
     esp_err_t result = next_step();
     s_wifi_running = (result == ESP_OK);
     return result;
@@ -292,6 +309,7 @@ void test_wifi_stack_reset(void) {
     s_wifi_running = false;
     s_role = NETIF_NONE;
     s_mode = WIFI_MODE_STA;
+    s_scan_pending = false;
     s_ap_session = false;
 
     memset(s_handlers, 0, sizeof s_handlers);

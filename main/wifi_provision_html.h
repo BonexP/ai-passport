@@ -7,10 +7,17 @@
 #include <stddef.h>
 
 #include "wifi_provision_form.h"
+#include "wifi_scan_list.h"
 
 // 静态表单页。返回指针，长度（不含 NUL）写进 *len（可为 NULL）。
 // 内容是纯 ASCII、< 2048 字节、不含任何凭据。
 const char *wifi_provision_form_page(size_t *len);
+
+// 动态表单页：把扫到的网络渲染进 <datalist>，手机上是"可输入 + 下拉建议"，
+// 用户点一下就能填好 SSID，隐藏网络仍然可以手打。
+// list 为 NULL 或空时，输出与 wifi_provision_form_page() 逐字节一致。
+// cap 不够时返回 0 并清空 buf —— 沿用"要么整页、要么一个字节都不写"的契约。
+size_t wifi_provision_html_form(char *buf, size_t cap, const wifi_scan_list_t *list);
 
 // 提交表单的目标路径，页面与 httpd 注册必须一致。
 #define WIFI_PROV_SAVE_PATH "/save"
