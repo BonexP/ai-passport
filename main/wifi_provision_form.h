@@ -55,7 +55,7 @@ typedef enum {
 } wifi_content_length_t;
 
 // 解析 application/x-www-form-urlencoded 正文（不是以 NUL 结尾的，长度单独给）。
-// 只认 ssid 与 pass 两个键；其他键连同其值一起忽略（值也不解码）。
+// 认 ssid、pass、lat、lon、place 五个键；其他键连同其值一起忽略（值也不解码）。
 // 失败时不保证 out 被清零以外的任何状态——调用方应只看返回值。
 wifi_form_result_t wifi_provision_form_parse(const char *body, size_t len,
                                              wifi_provision_form_t *out);

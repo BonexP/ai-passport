@@ -213,6 +213,17 @@ static void test_client_count_follows_dhcp(void) {
     reset_world();
     start_ok();
 
+    // 只关联、还没拿到地址：打不开网页，不算一个可用客户端。
+    test_wifi_fire_ap_staconnected();
+    test_run_worker(test_latest_task);
+    assert(snapshot().ap_clients == 0);
+
+    // 拿到 DHCP 才算。
+    test_wifi_fire_ap_ipassigned();
+    test_run_worker(test_latest_task);
+    assert(snapshot().ap_clients == 1);
+
+    // 重复分配（续租）不叠加：上界就是热点允许的连接数。
     test_wifi_fire_ap_ipassigned();
     test_run_worker(test_latest_task);
     assert(snapshot().ap_clients == 1);
@@ -225,6 +236,30 @@ static void test_client_count_follows_dhcp(void) {
     test_wifi_fire_ap_stadisconnected();
     test_run_worker(test_latest_task);
     assert(snapshot().ap_clients == 0);
+}
+
+static void test_client_join_extends_the_timeout(void) {
+    reset_world();
+    start_ok();
+
+    // 第 4 分钟连上：倒计时顺延，而不是沿用开机时那个 5 分钟。
+    test_time_us = 4 * 60 * 1000 * 1000LL;
+    test_wifi_fire_ap_ipassigned();
+    test_run_worker(test_latest_task);
+    assert(snapshot().ap_clients == 1);
+    assert(wifi_provision_service_active());
+
+    // 越过原来那个 5 分钟点，仍应开着。
+    test_time_us = ((int64_t)WIFI_PROV_TIMEOUT_MS + 2000) * 1000;
+    test_queue_expire = true;
+    test_run_worker(test_latest_task);
+    assert(wifi_provision_service_active());
+
+    // 越过顺延后的点（第 4 分钟 + 5 分钟）才关。
+    test_time_us = (4 * 60 * 1000LL + (int64_t)WIFI_PROV_TIMEOUT_MS + 2000) * 1000;
+    test_queue_expire = true;
+    test_run_worker(test_latest_task);
+    assert(!wifi_provision_service_active());
 }
 
 static void test_timeout_closes_the_ap(void) {
@@ -290,6 +325,7 @@ int main(void) {
     test_save_success_answers_then_restarts();
     test_save_failure_is_500_and_does_not_restart();
     test_client_count_follows_dhcp();
+    test_client_join_extends_the_timeout();
     test_timeout_closes_the_ap();
     test_stop_is_idempotent();
     test_start_is_rejected_while_already_running();

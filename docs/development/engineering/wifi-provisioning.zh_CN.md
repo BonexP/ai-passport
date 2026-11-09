@@ -58,7 +58,7 @@ socket 或回调。
 
 - 另一手机平台上的热点可见性与 `Passport-XXXX` 名称，以及系统"无互联网"提示的文案；
 - 配网页新增的经纬度与地点名：手机提交、重启后天气页确实使用该地点；
-- 日志里分别观察到 `WIFI_EVENT_AP_STACONNECTED` 与 `IP_EVENT_AP_STAIPASSIGNED`；
+- `WIFI_EVENT_AP_STACONNECTED` 与 `IP_EVENT_AP_STAIPASSIGNED` 都会触发，且只有后者推进客户端数；
 - 启动前、AP 起来后、httpd 起来后、手机连上后四个时间点的 free heap 与最大连续块；
 - 5 分钟超时后射频是否真的交还给常驻服务；
 - 连续 10 次进出后 socket、任务与堆是否回到基线。
