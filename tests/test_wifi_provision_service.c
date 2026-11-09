@@ -67,6 +67,10 @@ static void test_every_start_step_rolls_back(void) {
         assert(test_wifi_stack_clean());
         assert(test_httpd_uri_count == 0);
         // httpd 只有在真正起来之后才谈得上关：第 11 步是 start 自己失败。
+        if (test_httpd_stops != (failure >= 12 ? 1u : 0u)) {
+            printf("ladder: failure=%u step=%u starts=%u stops=%u\n", failure, test_ap_step,
+                   test_httpd_starts, test_httpd_stops);
+        }
         assert(test_httpd_stops == (failure >= 12 ? 1u : 0u));
     }
 }
