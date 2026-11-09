@@ -53,6 +53,9 @@ static const char *TAG = "wifi_prov";
 #define PROV_RECV_RETRIES     2u
 #define PROV_PAGE_MAX         1024u
 #define PROV_CONTENT_LEN_MAX  20u /* 19 位数字足够；再长必然是超上限 */
+/* 与 ap_cfg.ap.max_connection 同一个值：计数以"分配出去的地址"为准，
+   上限就是热点允许的客户端数，重复的 DHCP 事件不会把计数顶穿。 */
+#define PROV_MAX_CLIENTS      1u
 
 typedef enum {
     PROV_MSG_SUBMIT = 0,  // handler → worker
@@ -302,10 +305,10 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
     (void)arg;
     (void)base;
     (void)data;
+    // 只处理断开。客户端的"加入"以拿到 DHCP 为准，见 on_ip_event：
+    // 关联成功但没有地址的终端打不开网页，不该计入客户端数。
     prov_msg_t msg = { .kind = 0, .form_result = 0 };
-    if (id == WIFI_EVENT_AP_STACONNECTED) {
-        msg.kind = (uint8_t)PROV_MSG_CLIENT_JOINED;
-    } else if (id == WIFI_EVENT_AP_STADISCONNECTED) {
+    if (id == WIFI_EVENT_AP_STADISCONNECTED) {
         msg.kind = (uint8_t)PROV_MSG_CLIENT_LEFT;
     } else {
         return;
@@ -410,7 +413,10 @@ static void service_task(void *arg) {
                 }
                 break;
             case PROV_MSG_CLIENT_JOINED:
-                if (s_clients < UINT8_MAX) s_clients++;
+                if (s_clients < PROV_MAX_CLIENTS) s_clients++;
+                // 有人连上就顺延倒计时：否则第 4 分钟连上的手机会在第 5 分钟被掐掉。
+                (void)wifi_provision_flow_handle(&s_flow, WIFI_PROV_EV_CLIENT_JOINED, WIFI_FORM_OK,
+                                                 NULL, now_ms());
                 publish_prov();
                 break;
             case PROV_MSG_CLIENT_LEFT:
@@ -521,7 +527,7 @@ esp_err_t wifi_provision_service_start(void) {
     ap_cfg.ap.ssid_len = (uint8_t)strlen((const char *)ap_cfg.ap.ssid);
     ap_cfg.ap.channel = 1;
     ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-    ap_cfg.ap.max_connection = 1;
+    ap_cfg.ap.max_connection = PROV_MAX_CLIENTS;
     ap_cfg.ap.ssid_hidden = 0;
     ap_cfg.ap.beacon_interval = 100;
     err = esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);

@@ -73,7 +73,8 @@ Still unmeasured, therefore `Unverified`:
   wording of the system "no internet" warning;
 - the new latitude/longitude and place fields: submitting them from a phone and seeing the
   weather page use that location after the reboot;
-- `WIFI_EVENT_AP_STACONNECTED` and `IP_EVENT_AP_STAIPASSIGNED` observed separately in the log;
+- `WIFI_EVENT_AP_STACONNECTED` and `IP_EVENT_AP_STAIPASSIGNED` both firing, and only the
+  latter moving the client count;
 - free heap and largest free block before start, after the AP is up, after httpd
   starts, and after the phone joins;
 - the five-minute timeout handing the radio back to the resident service;
