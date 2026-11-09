@@ -5,12 +5,17 @@
 # Task Breakdown
 
 P1.1-P1.10 are implemented and covered by host tests. The device test on 2026-10-31 covered
-flashing, provisioning, joining the submitted network and every long-press menu page. Three
-provisioning items remain unmeasured: the heap watermark while the AP is up, the five-minute
-timeout handing the radio back, and resource recovery after ten entry/exit cycles. P2.1's
-bounded response buffer and P2.2's field extractor are implemented and covered by host tests.
-This file decomposes the phases in `project-plan.md` into atomic tasks with verifiable
-acceptance criteria, so that each task can be taken on a topic branch and reviewed on its own.
+flashing, provisioning, joining the submitted network and every long-press menu page. Six
+provisioning items remain unmeasured: hotspot visibility and the system "no internet" prompt on a
+second phone platform, the new latitude/longitude and place fields taking effect, the two AP
+events observed separately, the heap watermark at four points while the AP is up, the five-minute
+timeout handing the radio back, and resource recovery after ten entry/exit cycles. P2.0 config,
+the P2.1 bounded response buffer and `net_http` transport, P2.2 field extraction, the P2.3
+Open-Meteo decision, the P2.4 weather page and the P2.7 offline snapshot are implemented with host
+tests. P2.5 and P2.6 (endpoint health, mDNS) have not started, and neither the weather path nor
+the new provisioning fields have been measured on hardware. This file decomposes the phases in
+`project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each task can be
+taken on a topic branch and reviewed on its own.
 
 ## 1. Rules that apply to every task
 
@@ -92,7 +97,7 @@ path nor the new provisioning fields have been measured on hardware.
 | --- | --- | --- |
 | P4.1 | CJK subset font generation pipeline, reproducible | Generation command recorded; glyph coverage checklist in the delivery report; on-screen rendering verified on device |
 | P4.2 | Sleep policy: screen off, modem sleep, wake sources | Measured current draw recorded as a device result |
-| P4.3 | Battery readout from the CW2017 gauge | Reading compared against a reference measurement; accuracy limits stated |
+| P4.3 | Battery readout from the CW2017 gauge (**implemented**: the status and weather pages already show SOC, see `main/page_status.c:65`) | Reading compared against a reference measurement; accuracy limits stated |
 | P4.4 | Memory accounting pass across all features | Free heap and largest free block recorded per feature combination |
 
 ## 7. Open decisions blocking work
