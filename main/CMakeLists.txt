@@ -26,6 +26,7 @@ idf_component_register(
          "wifi_provision_form.c"
          "wifi_provision_flow.c"
          "wifi_provision_html.c"
+         "wifi_scan_list.c"
          "wifi_status_shared.c"
          "page_router.c"
          "ui_product.c"

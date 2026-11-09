@@ -66,7 +66,12 @@ static test_handler_t s_handlers[TEST_HANDLER_SLOTS];
 static unsigned       s_handler_count;
 
 static esp_err_t next_step(void) {
-    if (s_ap_session) return test_ap_next_step();
+    if (s_ap_session) {
+        // 配网启动序列在起 AP 之前会先切到 STA 扫一次；那几步不属于启动阶梯
+        // （扫描失败不致命），所以既不计数也不参与 test_ap_fail_at 的编号。
+        if (s_mode == WIFI_MODE_STA) return ESP_OK;
+        return test_ap_next_step();
+    }
     test_wifi_step++;
     if (test_wifi_fail_at != 0 && test_wifi_step == test_wifi_fail_at) return test_wifi_fail_err;
     return ESP_OK;
