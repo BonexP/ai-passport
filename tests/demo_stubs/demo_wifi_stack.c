@@ -66,16 +66,13 @@ typedef struct {
 static test_handler_t s_handlers[TEST_HANDLER_SLOTS];
 static unsigned       s_handler_count;
 
+// 扫描阶段：set_mode(STA) 与紧跟的那次 start 不占启动阶梯。
+// 不能用"当前是不是 STA 模式"来判断 —— 复位后 s_mode 本来就是 STA，
+// 那样会把 netif/handlers/init 这些真步骤一起漏掉。
+static bool s_scan_pending;
+
 static esp_err_t next_step(void) {
-    if (s_ap_session) {
-        // 配网启动序列在起 AP 之前会先切到 STA 扫一次；那几步不属于启动阶梯
-        // （扫描失败不致命），所以既不计数也不参与 test_ap_fail_at 的编号。
-        if (s_mode == WIFI_MODE_STA) {
-            fprintf(stderr, "    skip (sta mode)\n");
-            return ESP_OK;
-        }
-        return test_ap_next_step();
-    }
+    if (s_ap_session) return test_ap_next_step();
     test_wifi_step++;
     if (test_wifi_fail_at != 0 && test_wifi_step == test_wifi_fail_at) return test_wifi_fail_err;
     return ESP_OK;
@@ -83,8 +80,6 @@ static esp_err_t next_step(void) {
 
 unsigned test_ap_next_step(void) {
     test_ap_step++;
-    fprintf(stderr, "    ap_step=%u (session=%d mode=%d)\n", test_ap_step, (int)s_ap_session,
-            s_mode);
     if (test_ap_fail_at != 0 && test_ap_step == test_ap_fail_at) return test_wifi_fail_err;
     return ESP_OK;
 }
@@ -177,6 +172,12 @@ esp_err_t esp_wifi_set_storage(int storage) {
 
 esp_err_t esp_wifi_set_mode(int mode) {
     s_mode = mode;
+    // 配网启动序列里的这一次 set_mode(STA) 是为预扫服务的，不是启动阶梯的一步。
+    if (s_ap_session && mode == WIFI_MODE_STA) {
+        s_scan_pending = true;
+        return ESP_OK;
+    }
+    s_scan_pending = false;
     return next_step();
 }
 
@@ -195,6 +196,11 @@ esp_err_t esp_wifi_set_config(int iface, const wifi_config_t *cfg) {
 }
 
 esp_err_t esp_wifi_start(void) {
+    if (s_ap_session && s_scan_pending) {
+        s_scan_pending = false; // 预扫用的那次 start：驱动真起来了，但不占阶梯编号
+        s_wifi_running = true;
+        return ESP_OK;
+    }
     esp_err_t result = next_step();
     s_wifi_running = (result == ESP_OK);
     return result;
@@ -303,6 +309,7 @@ void test_wifi_stack_reset(void) {
     s_wifi_running = false;
     s_role = NETIF_NONE;
     s_mode = WIFI_MODE_STA;
+    s_scan_pending = false;
     s_ap_session = false;
 
     memset(s_handlers, 0, sizeof s_handlers);
