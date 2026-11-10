@@ -18,7 +18,9 @@ This repository ships its own SoftAP provisioning flow. The upstream Bluetooth
 - **Submit**: five fields as `application/x-www-form-urlencoded`: SSID, password, latitude,
   longitude and place name. The last three are optional; latitude and longitude must be given
   together, and leaving both empty means "this network has no location", so the weather page
-  shows `Location not set`.
+  shows `Location not set`. That is a terminal state: the offline snapshot does not record
+  which network it belongs to, so a network without a location never replays one saved by
+  another network.
 - **Result**: a valid form is written to NVS with the new record marked active, the
   device answers the request, then reboots and the boot sweep connects. There is no
   APSTA pre-check, so a wrong password shows up on the status page after that

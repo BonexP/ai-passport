@@ -6,10 +6,20 @@
 
 weather_view_state_t weather_view_state(bool connected, bool located, bool time_valid,
                                         bool has_data, bool waited_long) {
-    // 顺序即优先级：有旧数据 > 没网 > 没地点 > 没校时 > 等太久 > 正在取。
-    if (has_data) return WEATHER_VIEW_DATA;
-    if (!connected) return WEATHER_VIEW_NO_NETWORK;
+    // 顺序即优先级。这里有两件事同时成立，不能简单二选一：
+    //
+    //   1. 离线时仍然要显示上一次存下的天气（页面用 "Offline - saved" 标明来源）。
+    //   2. 已连上、但这个网络没配地点时，绝不能拿别的网络的快照顶上去。
+    //
+    // 快照只存天气本身，不记它属于哪个网络，开机 load_saved() 又会无条件发布出来。
+    // 于是"连上了但没地点"与"根本没网"必须分开判断：前者是 Location not set 的
+    // 终态，后者才允许回放离线数据。
+    //
+    // 2026-11-10 设备实证：换到一个只填了 SSID/密码的网络后，页面先闪
+    // Location not set，随即显示另一个网络（zhenjiang）的天气与地名。
+    if (!connected) return has_data ? WEATHER_VIEW_DATA : WEATHER_VIEW_NO_NETWORK;
     if (!located) return WEATHER_VIEW_NO_LOCATION;
+    if (has_data) return WEATHER_VIEW_DATA;
     if (!time_valid) return WEATHER_VIEW_WAIT_TIME;
     if (waited_long) return WEATHER_VIEW_RETRYING;
     return WEATHER_VIEW_UPDATING;

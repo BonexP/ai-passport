@@ -19,8 +19,9 @@ typedef enum {
     WEATHER_VIEW_RETRYING, // 等得太久仍无数据
 } weather_view_state_t;
 
-// 有数据永远赢：没网、没校时都不该把已经取到的温度藏起来，
-// 页面会用"Saved …"或"Offline - saved"说明它是旧数据。
+// 离线时有旧数据就显示（页面用 "Offline - saved" 标明来源），没网、没校时都不该
+// 把已经取到的温度藏起来。但"连上了一个没配地点的网络"是例外：快照不记归属，
+// 这种网络的正确终态是 Location not set，不能回放别的网络的数据。
 weather_view_state_t weather_view_state(bool connected, bool located, bool time_valid,
                                         bool has_data, bool waited_long);
 

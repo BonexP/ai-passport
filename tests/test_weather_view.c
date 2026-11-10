@@ -9,10 +9,20 @@
 
 #include "weather_view.h"
 
-static void test_data_wins_over_every_other_condition(void) {
-    // 有旧数据时，即使没网、没地点、没校时，也不许把温度藏起来。
+static void test_data_wins_while_offline(void) {
+    // 离线时上一份快照仍然要显示：没网不等于把温度藏起来，
+    // 页面会用 "Offline - saved" 说明它是旧数据。
     assert(weather_view_state(false, false, false, true, false) == WEATHER_VIEW_DATA);
+    assert(weather_view_state(false, true, false, true, false) == WEATHER_VIEW_DATA);
+    // 在线、有地点、有数据：正常显示。
     assert(weather_view_state(true, true, true, true, true) == WEATHER_VIEW_DATA);
+}
+
+static void test_missing_location_beats_stale_snapshot(void) {
+    // 快照不记"属于哪个网络"，换网后旧数据仍然在。已连上但没地点是终态：
+    // 这个网络没有天气，就不许拿别的网络的快照顶上去（2026-11-10 设备实证）。
+    assert(weather_view_state(true, false, true, true, false) == WEATHER_VIEW_NO_LOCATION);
+    assert(weather_view_state(true, false, false, true, true) == WEATHER_VIEW_NO_LOCATION);
 }
 
 static void test_state_priority_without_data(void) {
@@ -42,6 +52,10 @@ static void test_place_falls_back_from_snapshot_to_network_name(void) {
     // 没有数据时，地点行就是状态文案。
     assert(strcmp(weather_view_place(WEATHER_VIEW_NO_NETWORK, "Beijing", "", "home"), "No network") ==
            0);
+
+    // 没地点时也一样：哪怕快照里残留着上一个网络的地名，也不能贴出来。
+    assert(strcmp(weather_view_place(WEATHER_VIEW_NO_LOCATION, "zhenjiang", "", "AH3C_204C"),
+                  "Location not set") == 0);
 }
 
 static void test_utc_formatting_is_stable(void) {
@@ -93,7 +107,8 @@ static void test_updated_line_for_fresh_and_stale_data(void) {
 }
 
 int main(void) {
-    test_data_wins_over_every_other_condition();
+    test_data_wins_while_offline();
+    test_missing_location_beats_stale_snapshot();
     test_state_priority_without_data();
     test_messages_cover_every_state();
     test_place_falls_back_from_snapshot_to_network_name();

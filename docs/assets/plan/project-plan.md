@@ -301,7 +301,9 @@ Design rules that follow from having no hub:
 - Each network feature owns a small bounded buffer allocated at boot when the heap is healthy.
 - No feature may block the LVGL task or a button callback.
 - Offline behaviour is explicit: show the last snapshot from NVS with a visible stale marker
-  and the timestamp of the snapshot.
+  and the timestamp of the snapshot. A snapshot carries no network identity, so it is shown
+  only when there is no connection or the current profile has a location; a connected network
+  without a location is the terminal `Location not set` state, never another network's data.
 - mDNS discovery must fall back to cached direct addresses when a router does not forward
   multicast (RFC 6762 section 8.1). This is a known failure mode recorded in the reference
   application.
