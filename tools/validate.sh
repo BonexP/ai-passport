@@ -161,11 +161,16 @@ run_static_checks() {
         tests/test_wifi_radio_owner.c main/wifi_radio_owner.c \
         -o "${test_dir}/test_wifi_radio_owner"
     "${test_dir}/test_wifi_radio_owner"
+    # 这两个测试链接 demo_app_config.c 而不是 main/app_config.c：后者会通过
+    # __has_include 吃进开发机的 app_config.local.h，其中的 Wi-Fi 预设会在
+    # wifi_profile_service_start() 里被注入，打破"空库"用例的前提
+    # （本地红 CI 绿的假回归）。表内容语义由 test_wifi_presets.c 单独覆盖。
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
         tests/test_wifi_service.c tests/demo_stubs/demo_wifi_stack.c \
+        tests/demo_stubs/demo_app_config.c \
         main/wifi_profile.c main/wifi_presets.c main/wifi_profile_nvs.c \
-        main/app_config.c main/app_location.c \
+        main/app_location.c \
         main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
         main/wifi_radio_owner.c \
         -Wl,--gc-sections -o "${test_dir}/test_wifi_service"
@@ -174,11 +179,12 @@ run_static_checks() {
         -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
         tests/test_wifi_provision_service.c \
         tests/demo_stubs/demo_wifi_stack.c tests/demo_stubs/demo_http_stack.c \
+        tests/demo_stubs/demo_app_config.c \
         main/wifi_provision_service.c main/wifi_provision_form.c \
         main/wifi_provision_flow.c main/wifi_provision_html.c \
         main/wifi_scan_list.c \
         main/wifi_profile.c main/wifi_profile_nvs.c main/wifi_presets.c \
-        main/app_config.c main/app_location.c \
+        main/app_location.c \
         main/wifi_connect_policy.c main/wifi_status.c main/wifi_status_shared.c \
         main/wifi_radio_owner.c main/wifi_profile_service.c \
         -Wl,--gc-sections -o "${test_dir}/test_wifi_provision_service"
