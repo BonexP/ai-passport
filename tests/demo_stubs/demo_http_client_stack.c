@@ -19,6 +19,16 @@ static int                         s_cleanup_count;
 // 供测试直接构造句柄指针；不需要真实资源。
 static int s_handle_token;
 
+// 请求头记录：键与值都拷贝进静态存储，避免与调用方的字符串生命周期耦合。
+typedef struct {
+    char name[DEMO_HTTP_MAX_HEADER_LEN];
+    char value[DEMO_HTTP_MAX_HEADER_LEN];
+} recorded_header_t;
+
+static recorded_header_t s_headers[DEMO_HTTP_MAX_HEADERS];
+static int               s_header_count;
+static int               s_header_overflow;
+
 void demo_http_client_reset(void) {
     memset(&s_scenario, 0, sizeof s_scenario);
     memset(&s_config, 0, sizeof s_config);
@@ -29,6 +39,9 @@ void demo_http_client_reset(void) {
     s_reads = 0;
     s_init_count = 0;
     s_cleanup_count = 0;
+    memset(s_headers, 0, sizeof s_headers);
+    s_header_count = 0;
+    s_header_overflow = 0;
 }
 
 void demo_http_client_set_scenario(const demo_http_client_scenario_t *scenario) {
@@ -43,6 +56,35 @@ int demo_http_client_init_count(void) {
 
 int demo_http_client_cleanup_count(void) {
     return s_cleanup_count;
+}
+
+static int lower_or_same(char c) {
+    return (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
+}
+
+static bool name_equals_ci(const char *a, const char *b) {
+    while (*a != '\0' && *b != '\0') {
+        if (lower_or_same(*a) != lower_or_same(*b)) return false;
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+// 键与值都拷贝进静态存储（超长截断），避免与调用方的字符串生命周期耦合。
+// src == NULL 时写成空串。
+static void copy_trunc(char *dst, const char *src, size_t cap) {
+    if (cap == 0) {
+        return;
+    }
+    size_t n = 0;
+    if (src != NULL) {
+        while (n + 1 < cap && src[n] != '\0') {
+            dst[n] = src[n];
+            n++;
+        }
+    }
+    dst[n] = '\0';
 }
 
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config) {
@@ -61,9 +103,58 @@ void esp_http_client_cleanup(esp_http_client_handle_t client) {
 esp_err_t esp_http_client_set_header(esp_http_client_handle_t client, const char *key,
                                      const char *value) {
     (void)client;
-    (void)key;
-    (void)value;
+
+    // 空键是调用方 bug，真实实现也不接受：记为设置失败，不占记录位。
+    if (key == NULL || key[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // esp-idf 的 esp_http_client_set_header 同名（大小写不敏感）是替换，不是追加：
+    // 桩照线上形态记账，"Authorization 恰好一次"才不会被 UA 覆写假性干扰——
+    // 被覆盖的项不计数。
+    for (int i = 0; i < s_header_count; i++) {
+        if (name_equals_ci(s_headers[i].name, key)) {
+            copy_trunc(s_headers[i].value, value, sizeof s_headers[i].value);
+            return ESP_OK;
+        }
+    }
+
+    if (s_header_count >= DEMO_HTTP_MAX_HEADERS) {
+        s_header_overflow++;
+        return ESP_ERR_NO_MEM;
+    }
+
+    recorded_header_t *h = &s_headers[s_header_count++];
+    copy_trunc(h->name, key, sizeof h->name);
+    copy_trunc(h->value, value, sizeof h->value);
     return ESP_OK;
+}
+
+int demo_http_client_header_count(void) {
+    return s_header_count;
+}
+
+const char *demo_http_client_header_name(int index) {
+    if (index < 0 || index >= s_header_count) return "";
+    return s_headers[index].name;
+}
+
+const char *demo_http_client_header_value(int index) {
+    if (index < 0 || index >= s_header_count) return "";
+    return s_headers[index].value;
+}
+
+int demo_http_client_header_times(const char *name) {
+    if (name == NULL) return 0;
+    int times = 0;
+    for (int i = 0; i < s_header_count; i++) {
+        if (name_equals_ci(s_headers[i].name, name)) times++;
+    }
+    return times;
+}
+
+int demo_http_client_header_overflow(void) {
+    return s_header_overflow;
 }
 
 esp_err_t esp_http_client_open(esp_http_client_handle_t client, int write_len) {
