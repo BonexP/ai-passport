@@ -215,6 +215,66 @@ static void test_invalid_arguments_do_not_touch_the_network(void) {
     assert(demo_http_client_cleanup_count() == 0);
 }
 
+
+// ---- net_http_get_ex：请求头与状态码 ----
+
+static void test_ex_weather_shape_sets_no_authorization(void) {
+    demo_http_client_reset();
+    set_scenario(200, "{}", 2);
+
+    char body[32];
+    size_t len = 0;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/weather",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_OK);
+    assert(len == 2);
+    assert(status == 200);
+    // 天气路径不得带认证头。
+    assert(demo_http_client_header_times("Authorization") == 0);
+    assert(demo_http_client_header_times("authorization") == 0);
+    // UA 仍然被设置。
+    assert(demo_http_client_header_times("User-Agent") == 1);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_usage_shape_sets_authorization_exactly_once(void) {
+    demo_http_client_reset();
+    set_scenario(200, "{}", 2);
+
+    char body[32];
+    size_t len = 0;
+    int status = 0;
+    const net_http_header_t headers[] = {
+        {"Authorization", "Bearer EXAMPLE-NOT-A-REAL-TOKEN"},
+        {"Accept", "application/json"},
+    };
+    const net_http_request_t req = {
+        .url = "https://developer.example.test/radeon/api/v1/usage",
+        .headers = headers,
+        .header_count = sizeof headers / sizeof headers[0],
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 0, // 走默认预算
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_OK);
+    assert(demo_http_client_header_times("Authorization") == 1);
+    assert(demo_http_client_header_times("Accept") == 1);
+    assert(demo_http_client_header_overflow() == 0);
+    assert(status == 200);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
 int main(void) {
     test_success_streams_the_body_in_chunks();
     test_oversized_body_is_truncated_and_flagged();
@@ -226,6 +286,8 @@ int main(void) {
     test_read_error_discards_the_partial_body();
     test_content_type_guards_successful_responses();
     test_invalid_arguments_do_not_touch_the_network();
+    test_ex_weather_shape_sets_no_authorization();
+    test_ex_usage_shape_sets_authorization_exactly_once();
     puts("net http tests: PASS");
     return 0;
 }

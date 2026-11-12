@@ -90,18 +90,34 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
-http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t *body_len,
-                           uint32_t timeout_ms) {
-    if (body_len != NULL) {
-        *body_len = 0;
+// 把调用方给出的一个请求头交给客户端。键与值都不能为空，否则说明上层拼错了，
+// 这一条直接跳过而不是让它变成一个 "Authorization: (null)" 的怪请求。
+static void apply_header(esp_http_client_handle_t client, const net_http_header_t *h) {
+    if (h == NULL || h->name == NULL || h->name[0] == '\0' || h->value == NULL) {
+        return;
     }
-    if (url == NULL || body == NULL || body_cap == 0) {
+    (void)esp_http_client_set_header(client, h->name, h->value);
+}
+
+http_result_t net_http_get_ex(const net_http_request_t *req) {
+    if (req == NULL || req->url == NULL || req->body == NULL || req->body_cap == 0) {
         return HTTP_RESULT_TRANSPORT;
+    }
+    // 头指针与计数必须成对：给了 NULL 却报 N 个，是调用方的错。
+    if (req->headers == NULL && req->header_count != 0) {
+        return HTTP_RESULT_TRANSPORT;
+    }
+
+    const uint32_t timeout_ms =
+        req->timeout_ms != 0 ? req->timeout_ms : (uint32_t)NET_HTTP_TIMEOUT_MS;
+
+    if (req->body_len != NULL) {
+        *req->body_len = 0;
     }
 
     http_header_probe_t probe = {0};
     const esp_http_client_config_t config = {
-        .url = url,
+        .url = req->url,
         .timeout_ms = (int)timeout_ms,
         // 证书 bundle 做完整校验（链 + 域名 + 有效期）。有效期依赖 SNTP 已同步：
         // 时间不可信时调用方根本不该走到这里。
@@ -118,6 +134,9 @@ http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t 
         return HTTP_RESULT_TRANSPORT;
     }
     (void)esp_http_client_set_header(client, "User-Agent", NET_HTTP_USER_AGENT);
+    for (size_t i = 0; i < req->header_count; i++) {
+        apply_header(client, &req->headers[i]);
+    }
 
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
@@ -133,9 +152,14 @@ http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t 
     }
 
     const int status = esp_http_client_get_status_code(client);
+    // 读到了响应头：状态码已知。非 2xx 也要交出去，调用方正是靠它区分
+    // 401 / 429 / 502。
+    if (req->status_out != NULL) {
+        *req->status_out = status;
+    }
 
     http_body_t buffer;
-    http_body_init(&buffer, body, body_cap);
+    http_body_init(&buffer, req->body, req->body_cap);
 
     http_result_t result = HTTP_RESULT_TRANSPORT;
     bool read_ok = true;
@@ -154,12 +178,12 @@ http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t 
 
     if (read_ok) {
         (void)http_body_finish(&buffer);
-        if (body_len != NULL) {
-            *body_len = http_body_len(&buffer);
+        if (req->body_len != NULL) {
+            *req->body_len = http_body_len(&buffer);
         }
         result = http_result_from_status(status, http_body_truncated(&buffer));
         // 门户页 / 错误页经常以 200 + text/html 返回。只有"本应成功"的响应才升级
-        // 成 CONTENT_TYPE；非 2xx 仍报状态码，截断仍报截断（那是更具体的原因）。
+        // 成 CONTENT_TYPE；非 2xx 仍报状态码，截断也仍报截断（那是更具体的原因）。
         if (result == HTTP_RESULT_OK && probe.present &&
             !contains_ci(probe.content_type, "json")) {
             result = HTTP_RESULT_CONTENT_TYPE;
@@ -169,4 +193,23 @@ http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t 
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     return result;
+}
+
+http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t *body_len,
+                           uint32_t timeout_ms) {
+    // 先清零再转发：原实现在参数非法时也会把 *body_len 置 0，必须保住这条契约。
+    if (body_len != NULL) {
+        *body_len = 0;
+    }
+    const net_http_request_t req = {
+        .url = url,
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = body_cap,
+        .body_len = body_len,
+        .status_out = NULL, // 天气路径不关心状态码
+        .timeout_ms = timeout_ms,
+    };
+    return net_http_get_ex(&req);
 }
