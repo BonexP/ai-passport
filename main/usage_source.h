@@ -20,10 +20,6 @@
 // 实际端点约 52 字节；128 给网关前缀与环境参数留余量。
 #define USAGE_URL_MAX 128
 
-// 每天额度上限是"每账户、随账户变化"的运行时值：页面上限 32 位足够，
-// 用 int32_t 表示并允许"未知"（INT32_MIN）。绝不编译进默认值。
-#define USAGE_POINTS_UNKNOWN INT32_MIN
-
 // 当天请求/错误/token 计数的上界。超出即认为报文不对劲，判解析失败而不是截断显示。
 #define USAGE_COUNT_LIMIT 1000000000ll // 1e9
 
@@ -60,13 +56,15 @@ bool usage_url_build(char *buf, size_t cap);
 //
 // 容错：响应里额外的 by_model / recent / all_time 等键与数组被忽略
 // （json_field 只沿对象路径下降，数组整体当不透明值跳过）；
-// daily_cost_limit_usd 缺失时 has_limit=false，其余字段照常解析。
+// daily_cost_limit_usd 为可选：缺失、null 或类型不符（如字符串）→ has_limit=false，
+// 其余字段照常解析；但如果它是缺了值/类型不符之外的数值且超出 214748.3647 上界，
+// 单位可能不是 points，整个报文判失败而不是显示半截额度。
 bool usage_parse(const char *json, usage_state_t *out);
 
 // points（万分位整数）→ "3.2500" / "0.0032" / "1234.5678"。缓冲不足返回 false 并置空串。
 bool usage_format_points(int32_t points_1e4, char *buf, size_t cap);
 
-// 大数的紧凑显示：2100 → "2100"，1234567 → "1.2M"，88200123 → "88.2M"，999999999 → "1.0B"。
+// 大数的紧凑显示：2100 → "2100"，1234567 → "1.2M"，88200123 → "88.2M"，999999999 → "1000.0M"（进位保留，不跳档）。
 // 只用于 token 计数这类不需要精确到个位的行。负值按 0 处理。永不输出 "$"。
 bool usage_format_compact(int64_t value, char *buf, size_t cap);
 

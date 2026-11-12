@@ -27,19 +27,35 @@ bool usage_url_build(char *buf, size_t cap) {
     return true;
 }
 
-static bool read_points(const char *doc, const char *path, bool require, int32_t *out) {
-    double raw = 0.0;
-    if (!json_field_number(doc, path, &raw)) {
-        if (!require) {
-            *out = 0;
-            return true;
-        }
-        return false;
-    }
+static bool points_in_range(double raw, int32_t *out) {
     if (raw < 0.0 || raw > (double)INT32_MAX / POINTS_SCALE) {
         return false;
     }
     *out = (int32_t)(raw * POINTS_SCALE + 0.5);
+    return true;
+}
+
+static bool read_points(const char *doc, const char *path, int32_t *out) {
+    double raw = 0.0;
+    if (!json_field_number(doc, path, &raw)) {
+        return false;
+    }
+    return points_in_range(raw, out);
+}
+
+// limit 可选：缺失 / null / 类型不符（如字符串）→ 未知（*found = false），不是 0 额度；
+// 但数值越界（含 NaN/Inf，json_field 已挡）→ 整报文失败：单位可能不是 points。
+static bool read_points_opt(const char *doc, const char *path, bool *found, int32_t *out) {
+    double raw = 0.0;
+    if (!json_field_number(doc, path, &raw)) {
+        *found = false;
+        *out = 0;
+        return true;
+    }
+    if (!points_in_range(raw, out)) {
+        return false;
+    }
+    *found = true;
     return true;
 }
 
@@ -74,19 +90,18 @@ bool usage_parse(const char *json, usage_state_t *out) {
 
     memset(out, 0, sizeof *out);
 
-    double limit_raw = 0.0;
-    if (json_field_number(json, "daily_cost_limit_usd", &limit_raw)) {
-        if (limit_raw < 0.0 || limit_raw > (double)INT32_MAX / POINTS_SCALE) {
-            return false;
-        }
-        out->has_limit = true;
-        out->limit_1e4 = (int32_t)(limit_raw * POINTS_SCALE + 0.5);
-    }
-
-    if (!read_points(json, "daily_cost_used_usd", true, &out->used_1e4)) {
+    int32_t limit_1e4 = 0;
+    bool limit_found = false;
+    if (!read_points_opt(json, "daily_cost_limit_usd", &limit_found, &limit_1e4)) {
         return false;
     }
-    if (!read_points(json, "daily_cost_remaining_usd", true, &out->remaining_1e4)) {
+    out->has_limit = limit_found;
+    out->limit_1e4 = limit_1e4;
+
+    if (!read_points(json, "daily_cost_used_usd", &out->used_1e4)) {
+        return false;
+    }
+    if (!read_points(json, "daily_cost_remaining_usd", &out->remaining_1e4)) {
         return false;
     }
 

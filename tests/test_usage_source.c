@@ -73,6 +73,25 @@ static void test_arrays_and_extra_keys_are_ignored(void) {
     assert(s.has_limit);
 }
 
+// 类型不符（字符串）→ 未知额度但整报文仍可用；数值越界 → 整报文失败（单位可能不是 points）。
+static void test_wrong_type_limit_is_unknown_but_bad_range_fails(void) {
+    usage_state_t s;
+    assert(usage_parse("{\"daily_cost_limit_usd\":\"2.0\",\"daily_cost_used_usd\":1,"
+                       "\"daily_cost_remaining_usd\":1,"
+                       "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}", &s));
+    assert(!s.has_limit);
+    assert(s.used_1e4 == 10000);
+
+    // 负数：数值越界 → 整报文失败
+    assert(!usage_parse("{\"daily_cost_limit_usd\":-1,\"daily_cost_used_usd\":1,"
+                        "\"daily_cost_remaining_usd\":1,"
+                        "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}", &s));
+    // 大于 214748.3647：超出万分位 int32 上限 → 整报文失败
+    assert(!usage_parse("{\"daily_cost_limit_usd\":2147483650,\"daily_cost_used_usd\":1,"
+                        "\"daily_cost_remaining_usd\":1,"
+                        "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}", &s));
+}
+
 static void test_missing_cap_is_unknown_not_zero(void) {
     const char json[] =
         "{\"daily_cost_used_usd\":1.5,\"daily_cost_remaining_usd\":2.5,"
@@ -223,6 +242,7 @@ int main(void) {
     test_parse_documented_example();
     test_arrays_and_extra_keys_are_ignored();
     test_missing_cap_is_unknown_not_zero();
+    test_wrong_type_limit_is_unknown_but_bad_range_fails();
     test_required_fields_missing_fail();
     test_null_and_wrong_types_fail();
     test_explicit_null_optionals_stay_unknown();
