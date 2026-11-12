@@ -436,6 +436,15 @@ static void wifi_boot_task(void *arg) {
 static void log_config_self_check(void) {
     ESP_LOGI(TAG, "本地配置: %s", app_config_local_present() ? "present" : "absent (defaults)");
 
+    // key 的三种形态只打"有没有"，绝不打值：这是自检日志，不是泄露通道。
+    const char *amd_key = app_config_amd_key();
+    ESP_LOGI(TAG, "AMD key: %s", amd_key == NULL ? "not configured"
+                                    : amd_key[0] == '\0' ? "empty (invalid)"
+                                    : "configured");
+    if (!app_config_amd_key_valid(amd_key)) {
+        ESP_LOGW(TAG, "AMD key: %s", app_config_issue_text(APP_CONFIG_ISSUE_AMD_KEY_INVALID));
+    }
+
     app_config_issue_t issues[APP_CONFIG_ISSUE_MAX];
     const size_t found =
         app_config_check(app_config_wifi_table(), app_config_wifi_count(),

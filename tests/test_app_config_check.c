@@ -205,6 +205,33 @@ static void test_the_real_config_is_clean(void) {
     assert(found == 0);
 }
 
+// ---- AMD key：四种形态 ----
+
+static void test_amd_key_absent_is_valid(void) {
+    assert(app_config_amd_key_valid(NULL));
+}
+
+static void test_amd_key_empty_is_invalid(void) {
+    assert(!app_config_amd_key_valid(""));
+}
+
+static void test_amd_key_printable_is_valid(void) {
+    // 形态与真实 key 一致，但由片段拼出，保持测试源码自身干净。
+    char key[40];
+    strncpy(key, "rc-", sizeof key - 1);
+    strncat(key, "a1B2c3D4e5F6g7H8i9J0", sizeof key - strlen(key) - 1);
+    assert(app_config_amd_key_valid(key));
+}
+
+static void test_amd_key_unprintable_or_too_long_is_invalid(void) {
+    assert(!app_config_amd_key_valid("rc-ke\ty"));
+    assert(!app_config_amd_key_valid("rc-\u4e2d")); // 非 ASCII 一律拒绝
+    char long_key[APP_CONFIG_ISSUE_MAX * 12];
+    memset(long_key, 'a', sizeof long_key - 1);
+    long_key[sizeof long_key - 1] = '\0';
+    assert(!app_config_amd_key_valid(long_key));
+}
+
 int main(void) {
     test_valid_tables_have_no_issues();
     test_wifi_field_errors_are_reported();
@@ -217,6 +244,10 @@ int main(void) {
     test_capacity_limit_only_truncates_the_list();
     test_issue_text_is_ascii_and_total();
     test_the_real_config_is_clean();
+    test_amd_key_absent_is_valid();
+    test_amd_key_empty_is_invalid();
+    test_amd_key_printable_is_valid();
+    test_amd_key_unprintable_or_too_long_is_invalid();
     puts("app config check tests: PASS");
     return 0;
 }
