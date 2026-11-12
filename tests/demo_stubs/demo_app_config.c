@@ -14,6 +14,10 @@
 
 #include <stddef.h>
 
+// app_config.h 的每一个新访问器都要在这里同步实现一份，否则服务类主机测试
+// 可能在某些机器上红、CI 绿（2026-11-10 实证：Wi-Fi 预设泄入导致假回归）。
+const char *app_config_amd_key(void) { return NULL; } // 与未配形态一致
+
 bool app_config_local_present(void) { return false; }
 
 size_t app_config_wifi_count(void) { return 0; }

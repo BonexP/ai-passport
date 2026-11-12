@@ -157,6 +157,8 @@ class VendoredDocumentationTest(unittest.TestCase):
             "device.md": "https://ai-passport.folotoy.cn/" + "trae/?s=" + "synthetic&k=synthetic",
             "conflict.md": "<" * 7 + " HEAD\n",
             "amd.md": "rc-" + "a1B2" * 6,
+            # 假阳性守卫："src-" 标识符里的字面 rc- 不算 key；错误数维持 6。
+            "src.md": "src-" + "b" * 24,
         }
         files = [
             self.document("components/vendor_audio/" + name, UPSTREAM_DOC + sample)
