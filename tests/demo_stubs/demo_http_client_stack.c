@@ -58,6 +58,35 @@ int demo_http_client_cleanup_count(void) {
     return s_cleanup_count;
 }
 
+static int lower_or_same(char c) {
+    return (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
+}
+
+static bool name_equals_ci(const char *a, const char *b) {
+    while (*a != '\0' && *b != '\0') {
+        if (lower_or_same(*a) != lower_or_same(*b)) return false;
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+// 键与值都拷贝进静态存储（超长截断），避免与调用方的字符串生命周期耦合。
+// src == NULL 时写成空串。
+static void copy_trunc(char *dst, const char *src, size_t cap) {
+    if (cap == 0) {
+        return;
+    }
+    size_t n = 0;
+    if (src != NULL) {
+        while (n + 1 < cap && src[n] != '\0') {
+            dst[n] = src[n];
+            n++;
+        }
+    }
+    dst[n] = '\0';
+}
+
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config) {
     s_init_count++;
     if (config != NULL) {
@@ -80,27 +109,24 @@ esp_err_t esp_http_client_set_header(esp_http_client_handle_t client, const char
         return ESP_ERR_INVALID_ARG;
     }
 
+    // esp-idf 的 esp_http_client_set_header 同名（大小写不敏感）是替换，不是追加：
+    // 桩照线上形态记账，"Authorization 恰好一次"才不会被 UA 覆写假性干扰——
+    // 被覆盖的项不计数。
+    for (int i = 0; i < s_header_count; i++) {
+        if (name_equals_ci(s_headers[i].name, key)) {
+            copy_trunc(s_headers[i].value, value, sizeof s_headers[i].value);
+            return ESP_OK;
+        }
+    }
+
     if (s_header_count >= DEMO_HTTP_MAX_HEADERS) {
         s_header_overflow++;
         return ESP_ERR_NO_MEM;
     }
 
     recorded_header_t *h = &s_headers[s_header_count++];
-    // 超长的键/值截断保存：够测试断言用，又不越界。
-    size_t n = 0;
-    while (n + 1 < sizeof h->name && key[n] != '\0') {
-        h->name[n] = key[n];
-        n++;
-    }
-    h->name[n] = '\0';
-    n = 0;
-    if (value != NULL) {
-        while (n + 1 < sizeof h->value && value[n] != '\0') {
-            h->value[n] = value[n];
-            n++;
-        }
-    }
-    h->value[n] = '\0';
+    copy_trunc(h->name, key, sizeof h->name);
+    copy_trunc(h->value, value, sizeof h->value);
     return ESP_OK;
 }
 
@@ -116,19 +142,6 @@ const char *demo_http_client_header_name(int index) {
 const char *demo_http_client_header_value(int index) {
     if (index < 0 || index >= s_header_count) return "";
     return s_headers[index].value;
-}
-
-static int lower_or_same(char c) {
-    return (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
-}
-
-static bool name_equals_ci(const char *a, const char *b) {
-    while (*a != '\0' && *b != '\0') {
-        if (lower_or_same(*a) != lower_or_same(*b)) return false;
-        a++;
-        b++;
-    }
-    return *a == '\0' && *b == '\0';
 }
 
 int demo_http_client_header_times(const char *name) {

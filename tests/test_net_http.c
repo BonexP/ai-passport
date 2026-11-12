@@ -275,6 +275,315 @@ static void test_ex_usage_shape_sets_authorization_exactly_once(void) {
     assert(demo_http_client_cleanup_count() == 1);
 }
 
+// ---- net_http_get_ex：退出分支 ----
+// 与 wrapper 路径共用的是同一份尾部实现，这里把 _ex 自己的参数校验、
+// 状态码与出口各钉一遍。
+
+static void test_ex_invalid_arguments_zero_the_length(void) {
+    demo_http_client_reset();
+
+    char body[4];
+    size_t len = 123;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = 0, // 非法：缓冲区容量必须大于 0
+        .body_len = &len,
+        .status_out = NULL,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRANSPORT);
+    assert(len == 0); // 契约：非成功结果 *body_len 必为 0
+    assert(demo_http_client_init_count() == 0); // 没碰网络
+    assert(demo_http_client_cleanup_count() == 0);
+}
+
+static void test_ex_null_headers_with_count_are_rejected(void) {
+    demo_http_client_reset();
+
+    char body[8];
+    size_t len = 123;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 2, // headers 与计数必须成对
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = NULL,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRANSPORT);
+    assert(len == 0);
+    assert(demo_http_client_init_count() == 0);
+}
+
+static void test_ex_non_2xx_reports_status_and_body(void) {
+    demo_http_client_reset();
+    set_scenario(401, "nope", 4);
+
+    char body[8];
+    size_t len = 0;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_HTTP_STATUS);
+    assert(status == 401); // 非 2xx 状态码要能拿到：key 被拒（401）与 429/502 同理
+    assert(len == 4);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_open_timeout_is_distinguished(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.status_code = 200;
+    sc.fetch_headers_result = 0;
+    sc.read_error_after = -1;
+    sc.open_error = ESP_ERR_TIMEOUT;
+    demo_http_client_set_scenario(&sc);
+
+    char body[8];
+    size_t len = 7;
+    int status = 12345; // 哨兵：没拿到响应头，状态码不得被写
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TIMEOUT);
+    assert(status == 12345);
+    assert(len == 0);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_open_failure_is_transport(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.open_error = ESP_FAIL;
+    sc.fetch_headers_result = 0;
+    sc.read_error_after = -1;
+    demo_http_client_set_scenario(&sc);
+
+    char body[8];
+    int status = 12345;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = NULL,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRANSPORT);
+    assert(status == 12345); // 打开失败时状态码不得被写
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_header_fetch_failure_is_transport(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.status_code = 200;
+    sc.fetch_headers_result = -1; // fetch_headers 失败：响应头都还没拿到
+    sc.read_error_after = -1;
+    demo_http_client_set_scenario(&sc);
+
+    char body[8];
+    int status = 12345;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = NULL,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRANSPORT);
+    assert(status == 12345);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_read_error_keeps_status_and_zero_length(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.status_code = 200;
+    sc.body = "{}";
+    sc.body_len = 2;
+    sc.fetch_headers_result = 2;
+    sc.read_error_after = 0; // 第一次读就失败
+    sc.content_type = "application/json";
+    demo_http_client_set_scenario(&sc);
+
+    char body[8];
+    size_t len = 9;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRANSPORT);
+    assert(len == 0); // 连接中途断开：内容不可信，长度按 0 交出
+    assert(status == 200); // 但状态码已经读到了，要如实交出去
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_content_type_guard_still_applies(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.status_code = 200;
+    sc.body = "<html>ok</html>";
+    sc.body_len = 15;
+    sc.fetch_headers_result = 15;
+    sc.read_error_after = -1;
+    sc.content_type = "text/html";
+    demo_http_client_set_scenario(&sc);
+
+    char body[32];
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = NULL,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_CONTENT_TYPE); // 200 + 门户页
+    assert(status == 200);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_empty_value_header_is_skipped(void) {
+    demo_http_client_reset();
+    set_scenario(200, "{}", 2);
+
+    char body[8];
+    const net_http_header_t headers[] = {
+        {"Accept", ""}, // 空串值：拼错了哪一段，直接跳过
+    };
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = headers,
+        .header_count = sizeof headers / sizeof headers[0],
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = NULL,
+        .status_out = NULL,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_OK);
+    assert(demo_http_client_header_times("Accept") == 0); // 没被发出去
+    assert(demo_http_client_header_times("User-Agent") == 1);
+}
+
+static void test_ex_oversized_body_is_truncated_and_flagged(void) {
+    demo_http_client_reset();
+    set_scenario(200, "0123456789", 10);
+
+    char body[4]; // 只能放 3 字节内容
+    size_t len = 0;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_TRUNCATED);
+    assert(len == 3);
+    assert(status == 200); // 截断：状态码已知，如实交出
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_empty_2xx_body_is_ok(void) {
+    demo_http_client_reset();
+    demo_http_client_scenario_t sc;
+    memset(&sc, 0, sizeof sc);
+    sc.status_code = 204;
+    sc.body = NULL;
+    sc.body_len = 0;
+    sc.fetch_headers_result = 0;
+    sc.read_error_after = -1;
+    demo_http_client_set_scenario(&sc);
+
+    char body[8];
+    size_t len_unused = 123;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = NULL,
+        .header_count = 0,
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = &len_unused,
+        .status_out = &status,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_OK);
+    assert(len_unused == 0);
+    assert(status == 204);
+    assert(demo_http_client_cleanup_count() == 1);
+}
+
+static void test_ex_caller_user_agent_replaces_default(void) {
+    demo_http_client_reset();
+    set_scenario(200, "{}", 2);
+
+    char body[8];
+    const net_http_header_t headers[] = {
+        {"User-Agent", "Custom-Agent/2.0"},
+    };
+    const net_http_request_t req = {
+        .url = "https://example.test/x",
+        .headers = headers,
+        .header_count = sizeof headers / sizeof headers[0],
+        .body = body,
+        .body_cap = sizeof body,
+        .body_len = NULL,
+        .status_out = NULL,
+        .timeout_ms = 1000,
+    };
+    assert(net_http_get_ex(&req) == HTTP_RESULT_OK);
+    assert(demo_http_client_header_times("User-Agent") == 1); // 同名覆盖，不是追加
+    assert(strcmp(demo_http_client_header_value(0), "Custom-Agent/2.0") == 0);
+    assert(demo_http_client_header_overflow() == 0);
+}
+
 int main(void) {
     test_success_streams_the_body_in_chunks();
     test_oversized_body_is_truncated_and_flagged();
@@ -288,6 +597,18 @@ int main(void) {
     test_invalid_arguments_do_not_touch_the_network();
     test_ex_weather_shape_sets_no_authorization();
     test_ex_usage_shape_sets_authorization_exactly_once();
+    test_ex_invalid_arguments_zero_the_length();
+    test_ex_null_headers_with_count_are_rejected();
+    test_ex_non_2xx_reports_status_and_body();
+    test_ex_open_timeout_is_distinguished();
+    test_ex_open_failure_is_transport();
+    test_ex_header_fetch_failure_is_transport();
+    test_ex_read_error_keeps_status_and_zero_length();
+    test_ex_content_type_guard_still_applies();
+    test_ex_empty_value_header_is_skipped();
+    test_ex_caller_user_agent_replaces_default();
+    test_ex_oversized_body_is_truncated_and_flagged();
+    test_ex_empty_2xx_body_is_ok();
     puts("net http tests: PASS");
     return 0;
 }

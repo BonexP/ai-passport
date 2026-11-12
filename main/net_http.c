@@ -90,17 +90,26 @@ static esp_err_t on_http_event(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
-// 把调用方给出的一个请求头交给客户端。键与值都不能为空，否则说明上层拼错了，
+// 把调用方给出的一个请求头交给客户端。键为空/值为空（含空串）说明上层拼错了，
 // 这一条直接跳过而不是让它变成一个 "Authorization: (null)" 的怪请求。
 static void apply_header(esp_http_client_handle_t client, const net_http_header_t *h) {
-    if (h == NULL || h->name == NULL || h->name[0] == '\0' || h->value == NULL) {
+    if (h == NULL || h->name == NULL || h->name[0] == '\0' || h->value == NULL ||
+        h->value[0] == '\0') {
         return;
     }
     (void)esp_http_client_set_header(client, h->name, h->value);
 }
 
 http_result_t net_http_get_ex(const net_http_request_t *req) {
-    if (req == NULL || req->url == NULL || req->body == NULL || req->body_cap == 0) {
+    if (req == NULL) {
+        return HTTP_RESULT_TRANSPORT;
+    }
+    // 契约：只要 req 能 deref，任何非成功结果都把 *body_len 置 0——
+    // 调用方不必在失败路径里猜缓冲区里是不是残留了上一轮的数据。
+    if (req->body_len != NULL) {
+        *req->body_len = 0;
+    }
+    if (req->url == NULL || req->body == NULL || req->body_cap == 0) {
         return HTTP_RESULT_TRANSPORT;
     }
     // 头指针与计数必须成对：给了 NULL 却报 N 个，是调用方的错。
@@ -110,15 +119,14 @@ http_result_t net_http_get_ex(const net_http_request_t *req) {
 
     const uint32_t timeout_ms =
         req->timeout_ms != 0 ? req->timeout_ms : (uint32_t)NET_HTTP_TIMEOUT_MS;
-
-    if (req->body_len != NULL) {
-        *req->body_len = 0;
-    }
+    // 头文件声明 uint32_t，config.timeout_ms 是 int。先夹到 INT32_MAX，避免回绕。
+    const int idf_timeout_ms =
+        timeout_ms > (uint32_t)INT32_MAX ? INT32_MAX : (int)timeout_ms;
 
     http_header_probe_t probe = {0};
     const esp_http_client_config_t config = {
         .url = req->url,
-        .timeout_ms = (int)timeout_ms,
+        .timeout_ms = idf_timeout_ms,
         // 证书 bundle 做完整校验（链 + 域名 + 有效期）。有效期依赖 SNTP 已同步：
         // 时间不可信时调用方根本不该走到这里。
         .crt_bundle_attach = esp_crt_bundle_attach,
