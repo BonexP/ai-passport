@@ -73,6 +73,10 @@ run_static_checks() {
         -o "${test_dir}/test_weather_source"
     "${test_dir}/test_weather_source"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_usage_source.c main/usage_source.c main/json_field.c \
+        -o "${test_dir}/test_usage_source"
+    "${test_dir}/test_usage_source"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_weather_view.c main/weather_view.c \
         -o "${test_dir}/test_weather_view"
     "${test_dir}/test_weather_view"

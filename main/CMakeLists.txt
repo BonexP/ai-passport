@@ -38,6 +38,7 @@ idf_component_register(
          "app_data_shared.c"
          "net_schedule.c"
          "weather_source.c"
+         "usage_source.c"
          "net_http.c"
          "net_worker.c"
          "weather_view.c"
