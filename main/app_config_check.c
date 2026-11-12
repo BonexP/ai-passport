@@ -55,6 +55,21 @@ static bool quote_fields_valid(const app_config_quote_t *q) {
     return true;
 }
 
+// key 的长度上限。Radeon Cloud 的 key 形如 "rc-" + 一串字母数字，几十字节；
+// 128 给足余量，超过它几乎一定是把别的东西粘进来了。
+#define CHECK_AMD_KEY_MAX 128
+
+bool app_config_amd_key_valid(const char *key) {
+    if (key == NULL) {
+        return true; // 没配是合法形态：页面显示 Key not configured
+    }
+    size_t n = bounded_strlen(key, CHECK_AMD_KEY_MAX);
+    if (n == 0 || n >= CHECK_AMD_KEY_MAX) {
+        return false;
+    }
+    return printable_ascii(key);
+}
+
 size_t app_config_check(const app_config_wifi_t *wifi, size_t wifi_count,
                         const app_config_quote_t *quotes, size_t quote_count,
                         app_config_issue_t *issues, size_t cap) {
@@ -146,6 +161,7 @@ const char *app_config_issue_text(app_config_issue_code_t code) {
     case APP_CONFIG_ISSUE_QUOTE_FIELDS:   return "quote symbol or label invalid";
     case APP_CONFIG_ISSUE_QUOTE_DUPLICATE:return "duplicate quote symbol";
     case APP_CONFIG_ISSUE_QUOTE_OVERFLOW: return "more quote symbols than the screen holds";
+    case APP_CONFIG_ISSUE_AMD_KEY_INVALID: return "amd key is empty or not printable ascii";
     }
     return "unknown";
 }

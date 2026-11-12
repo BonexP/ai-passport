@@ -25,6 +25,10 @@ SECRET_PATTERNS = {
     "GitHub token": re.compile(r"(?:ghp_|github_pat_)[A-Za-z0-9_]{20,}"),
     "AWS access key": re.compile(r"AKIA[0-9A-Z]{16}"),
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    # AMD Radeon Cloud API key：形如 "rc-" 后跟至少 20 个 ASCII 字母数字。
+    # 文档里打码的示例（rc-****）与模板占位（rc-YOUR_KEY_HERE）带非字母数字字符，
+    # 不会命中；真实 key 一旦被提交，静态门禁必须红。
+    "AMD API key": re.compile(r"rc-[A-Za-z0-9]{20,}"),
 }
 ROOT_MARKDOWN_ALLOWLIST = {
     "AGENTS.md",

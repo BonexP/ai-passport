@@ -31,6 +31,7 @@ typedef enum {
     APP_CONFIG_ISSUE_QUOTE_FIELDS,    // symbol/label 为空、超长或含非 ASCII
     APP_CONFIG_ISSUE_QUOTE_DUPLICATE, // symbol 与前面某条重复
     APP_CONFIG_ISSUE_QUOTE_OVERFLOW,  // 条数超过 APP_CONFIG_QUOTE_MAX
+    APP_CONFIG_ISSUE_AMD_KEY_INVALID, // key 非空但含不可打印字符或超出长度上限
 } app_config_issue_code_t;
 
 typedef struct {
@@ -44,6 +45,11 @@ typedef struct {
 size_t app_config_check(const app_config_wifi_t *wifi, size_t wifi_count,
                         const app_config_quote_t *quotes, size_t quote_count,
                         app_config_issue_t *issues, size_t cap);
+
+// 单独校验 AMD key。与 app_config_check 分开，因为 key 不属于任何一张表：
+// 没配（NULL）是合法且最常见的形态，页面自己会显示 Key not configured。
+// 空串或含不可打印字符才是问题。key 可为 NULL。
+bool app_config_amd_key_valid(const char *key);
 
 // 问题码 → 一句 ASCII 说明（日志用）。未知码返回 "unknown"。
 const char *app_config_issue_text(app_config_issue_code_t code);

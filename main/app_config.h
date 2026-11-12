@@ -43,6 +43,15 @@ typedef struct {
 // 本次构建是否真的带上了本地配置。开机日志用它区分"配置为空"与"文件没被编进来"。
 bool app_config_local_present(void);
 
+// AMD Radeon Cloud 的 API key（"rc-" 开头的明文串），来自本地头文件的
+// APP_CONFIG_AMD_KEY。三种形态：
+//   - 本地头文件缺失，或没写这一段 → NULL（页面显示 Key not configured，不开 socket）
+//   - 定义成空串 ""               → 仍返回空串（自检会报问题，但访问器不越权改写）
+//   - 定义成非空串                → 原样返回，唯一消费方是 usage 请求的 Authorization 头
+// 指针生命周期与固件相同，不拥有、不需要释放。除了拼进请求头，任何路径都不得
+// 打印、记录或以其他方式输出这个值。
+const char *app_config_amd_key(void);
+
 // 预设表。没有本地文件时 count 为 0、table 为 NULL；有本地文件时两者一致。
 // 返回的指针生命周期与固件相同，不拥有、不需要释放。
 size_t                  app_config_wifi_count(void);

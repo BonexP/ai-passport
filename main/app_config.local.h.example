@@ -6,6 +6,7 @@
 // 每一段都是可选的：删掉某个 #define，该段就退回内置默认值。
 //   - APP_CONFIG_WIFI  缺失 → 没有任何预设 Wi-Fi（与 CI 构建一致）
 //   - APP_CONFIG_QUOTES 缺失 → 使用产品默认的 8 个标的
+//   - APP_CONFIG_AMD_KEY 缺失 → 用量页显示 Key not configured，不发请求
 //
 // 注意：
 //   - 字符串会明文进入固件 .rodata，拿到设备就能提取；这不是保密方案。
@@ -21,3 +22,7 @@
 #define APP_CONFIG_QUOTES \
     { .symbol = "NVDA", .label = "NVIDIA" }, \
     { .symbol = "TSLA", .label = "TESLA" },
+
+// AMD Radeon Cloud 的 API key（rc- 开头）。只进本地文件，不进版本库；模板里的
+// 占位串不是真实 key，也不会匹配 tools/check_repo.py 的 rc- 形态规则。
+// #define APP_CONFIG_AMD_KEY "rc-YOUR_KEY_HERE"

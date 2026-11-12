@@ -156,6 +156,7 @@ class VendoredDocumentationTest(unittest.TestCase):
             "key.md": "-----BEGIN " + "PRIVATE KEY-----",
             "device.md": "https://ai-passport.folotoy.cn/" + "trae/?s=" + "synthetic&k=synthetic",
             "conflict.md": "<" * 7 + " HEAD\n",
+            "amd.md": "rc-" + "a1B2" * 6,
         }
         files = [
             self.document("components/vendor_audio/" + name, UPSTREAM_DOC + sample)
@@ -171,10 +172,11 @@ class VendoredDocumentationTest(unittest.TestCase):
             self.assertEqual(CHECKS.text_files(), files)
             self.assertEqual(CHECKS.main(), 1)
         errors = output.getvalue().splitlines()
-        self.assertEqual(len(errors), 5)
+        self.assertEqual(len(errors), 6)
         for expected in (
             "possible GitHub token", "possible AWS access key", "possible private key",
             "possible unsanitized device QR link", "unresolved merge conflict marker",
+            "possible AMD API key",
         ):
             self.assertTrue(any(expected in error for error in errors), errors)
 

@@ -59,6 +59,17 @@ static const app_config_quote_t s_quotes[] = {APP_CONFIG_QUOTES};
 
 #define APP_CONFIG_QUOTE_COUNT (sizeof APP_CONFIG_QUOTE_TABLE / sizeof APP_CONFIG_QUOTE_TABLE[0])
 
+// ---- AMD key ----
+//
+// 三种形态在编译期就已决定：本地头文件没定义 APP_CONFIG_AMD_KEY 时退回 NULL，
+// 与 Wi-Fi 预设的"缺段退默认值"一致；定义为空串时原样返回，让自检把它报成
+// 问题而不是在访问器里悄悄改写成 NULL——访问器只负责取值，不做裁决。
+#ifdef APP_CONFIG_AMD_KEY
+#define APP_CONFIG_AMD_KEY_VALUE APP_CONFIG_AMD_KEY
+#else
+#define APP_CONFIG_AMD_KEY_VALUE NULL
+#endif
+
 bool app_config_local_present(void) {
     return APP_CONFIG_LOCAL_PRESENT != 0;
 }
@@ -77,4 +88,8 @@ size_t app_config_quote_count(void) {
 
 const app_config_quote_t *app_config_quote_table(void) {
     return APP_CONFIG_QUOTE_TABLE;
+}
+
+const char *app_config_amd_key(void) {
+    return APP_CONFIG_AMD_KEY_VALUE;
 }
