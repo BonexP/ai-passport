@@ -179,14 +179,14 @@ static void enter_weather_page(void) {
         // 起不来也要让页面能显示 "Updating..."，不要黑屏。
         ESP_LOGE(TAG, "网络任务启动失败: %s", esp_err_to_name(e));
     }
-    net_worker_set_visible(true);
-    net_worker_request_refresh(); // 进页面立即判断一次，不必等 10 分钟
+    net_worker_set_visible(NET_SOURCE_WEATHER, true);
+    net_worker_request_refresh(NET_SOURCE_WEATHER); // 进页面立即判断一次，不必等 10 分钟
 }
 
 // 离开天气页回状态页。调用方必须已经持有 LVGL 锁。
 static void leave_weather_page(void) {
     // 先关门再拆页面：worker 不会再为新的一帧发请求。
-    net_worker_set_visible(false);
+    net_worker_set_visible(NET_SOURCE_WEATHER, false);
     page_weather_destroy();
     status_page_build();
     s_page = PAGE_STATUS;
@@ -241,7 +241,7 @@ static void process_input(const input_event_t *input) {
 
     // 天气页单击 OK：只投递请求，真正的 TLS 在 worker 里跑。
     if (route == ROUTE_REFRESH_WEATHER) {
-        net_worker_request_refresh();
+        net_worker_request_refresh(NET_SOURCE_WEATHER);
         if (bsp_lvgl_lock(500)) {
             page_weather_refresh(); // 让 "Updating..." 立刻可见
             bsp_lvgl_unlock();
