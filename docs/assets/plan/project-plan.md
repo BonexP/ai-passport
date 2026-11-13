@@ -5,7 +5,10 @@
 # Project Plan: All-in-One Firmware for FoloToy AI Passport
 
 Scope: custom firmware built on the `FoloToy/ai-passport` baseline (ESP-IDF 5.5.3).
-Status: P1 complete. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build. The device test on 2026-10-31 covered flashing, provisioning, joining the submitted network and every long-press menu page; three provisioning items remain unmeasured, see `task-breakdown.md`. P2 is in progress: the compile-time config, per-profile coordinates and place name, SNTP, the HTTPS transport, the weather page and the offline snapshot are implemented with host tests; the weather page and the new provisioning fields have not been measured on hardware. P5 (the AMD Radeon Cloud usage page, section 4.5) is planned and not started; it is ordered before P3.
+Status: P1 complete. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build. The device test on 2026-10-31 covered flashing, provisioning, joining the submitted network and every long-press menu page; three provisioning items remain unmeasured, see `task-breakdown.md`. P2 is in progress: the compile-time config, per-profile coordinates and place name, SNTP, the HTTPS transport, the weather page and the offline snapshot are implemented with host tests; the weather page and the new provisioning fields have not been measured on hardware. P5 (the AMD Radeon Cloud usage
+page, section 4.5) is in progress: the transport, the compile-time key, the usage parser and the
+display logic are implemented with host tests; the usage snapshot, the multi-source worker, the
+page itself and every device measurement remain. It is ordered before P3.
 Research date: 2026-10-27, against upstream `main` at `006c227`. AMD Radeon Cloud API research: 2026-11-10, against documentation last updated 2026-11-03.
 
 Bottom line: the feature set is feasible without an external helper service. The only
