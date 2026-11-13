@@ -218,8 +218,20 @@ run_static_checks() {
         main/net_snapshot_store.c main/net_snapshot.c main/net_schedule.c \
         main/app_data.c main/app_data_shared.c main/app_location.c \
         main/wifi_status.c main/wifi_status_shared.c \
+        main/usage_source.c main/json_field.c \
         -Wl,--gc-sections -o "${test_dir}/test_net_worker"
     "${test_dir}/test_net_worker"
+    # 多源之后新增的隔离、门禁与映射语义。与 test_net_worker.c 同构（白盒 include .c），
+    # 两者覆盖不同部分，互不重复。
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
+        tests/test_net_worker_sources.c \
+        main/net_snapshot_store.c main/net_snapshot.c main/net_schedule.c \
+        main/app_data.c main/app_data_shared.c main/app_location.c \
+        main/wifi_status.c main/wifi_status_shared.c \
+        main/usage_source.c main/json_field.c \
+        -Wl,--gc-sections -o "${test_dir}/test_net_worker_sources"
+    "${test_dir}/test_net_worker_sources"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_wifi_scan_list.c main/wifi_scan_list.c \
         -o "${test_dir}/test_wifi_scan_list"

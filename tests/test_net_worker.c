@@ -36,6 +36,17 @@ http_result_t net_http_get(const char *url, char *body, size_t body_cap, size_t 
     return HTTP_RESULT_TRANSPORT;
 }
 
+// 多源改动之后 net_worker.c 还引用了扩展形态与编译期 key。本文件不测用量路径
+// （那是 test_net_worker_sources.c 的事），这里只给最小替身让链接通过。
+http_result_t net_http_get_ex(const net_http_request_t *req) {
+    (void)req;
+    return HTTP_RESULT_TRANSPORT;
+}
+
+const char *app_config_amd_key(void) {
+    return NULL; // 默认无 key：用量源的门禁始终关着，不影响天气用例
+}
+
 bool weather_url_build(const app_location_t *loc, char *buf, size_t cap) {
     (void)loc;
     (void)buf;

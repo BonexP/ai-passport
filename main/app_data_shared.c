@@ -31,6 +31,10 @@ static app_data_bus_t s_bus = {
                 {
                     .fetched_uptime_ms = -1,
                 },
+            .usage =
+                {
+                    .fetched_uptime_ms = -1,
+                },
         },
     .lock = &s_ops,
 };

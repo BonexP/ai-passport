@@ -22,6 +22,7 @@ void app_data_bus_init(app_data_bus_t *bus, const app_data_lock_t *lock) {
     memset(&bus->data, 0, sizeof bus->data);
     // -1 表示"本次开机还没取过数"，与 0（开机瞬间）区分开。
     bus->data.weather.fetched_uptime_ms = -1;
+    bus->data.usage.fetched_uptime_ms = -1;
     bus->lock = lock;
 }
 
@@ -35,6 +36,18 @@ void app_data_publish_weather(app_data_bus_t *bus, const weather_state_t *next) 
     uint16_t seq = (uint16_t)(bus->data.weather.seq + 1u);
     bus->data.weather = *next;
     bus->data.weather.seq = seq;
+    bus_unlock(bus);
+}
+
+void app_data_publish_usage(app_data_bus_t *bus, const usage_record_t *next) {
+    if (bus == NULL || next == NULL) {
+        return;
+    }
+
+    bus_lock(bus);
+    uint16_t seq = (uint16_t)(bus->data.usage.seq + 1u);
+    bus->data.usage = *next;
+    bus->data.usage.seq = seq;
     bus_unlock(bus);
 }
 
