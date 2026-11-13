@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // 下界 2024-01-01T00:00:00Z：设备上电时 time() 从 1970 开始，任何早于这个点的值
@@ -17,3 +18,11 @@
 
 // epoch_seconds 是否落在可信窗口内。窗口按左闭右开处理。
 bool app_clock_epoch_is_plausible(int64_t epoch_seconds);
+
+// epoch 秒 → "YYYY-MM-DD HH:MMZ"（UTC）。epoch <= 0 或缓冲不足返回 false 并清空 buf。
+//
+// 放在这里而不是各页面各写一份：天气页的 "Offline - saved" 与用量页的
+// "Offline - 2026-11-11 23:59Z" 说的是同一件事，日历算法只该有一个实现。
+// 刻意不用 libc 的 gmtime：主机与固件对时区的处理不同，会让同一份快照在两边
+// 显示成不同日期，而这份时间戳的全部意义就是"它是什么时候的"。
+bool app_clock_format_utc(int32_t epoch, char *buf, size_t cap);

@@ -42,6 +42,7 @@ idf_component_register(
          "net_http.c"
          "net_worker.c"
          "weather_view.c"
+         "usage_view.c"
          "net_snapshot.c"
          "net_snapshot_store.c"
          "page_weather.c"

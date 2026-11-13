@@ -2,7 +2,8 @@
 #include "weather_view.h"
 
 #include <stdio.h>
-#include <string.h>
+
+#include "app_clock.h"
 
 weather_view_state_t weather_view_state(bool connected, bool located, bool time_valid,
                                         bool has_data, bool waited_long) {
@@ -49,47 +50,11 @@ const char *weather_view_place(weather_view_state_t state, const char *saved_pla
     return message != NULL ? message : "";
 }
 
-// epoch 秒 → 公历年月日（Howard Hinnant 的 civil_from_days），不依赖 libc 的 gmtime：
-// 主机与固件行为一致，也避免时区环境变量影响结果。
-static void civil_from_days(int64_t days, int *year, unsigned *month, unsigned *day) {
-    int64_t z = days + 719468;
-    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    unsigned doe = (unsigned)(z - era * 146097);
-    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int y = (int)yoe + (int)(era * 400);
-    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    unsigned mp = (5 * doy + 2) / 153;
-    unsigned d = doy - (153 * mp + 2) / 5 + 1;
-    unsigned m = mp < 10 ? mp + 3 : mp - 9;
-
-    *year = y + (m <= 2 ? 1 : 0);
-    *month = m;
-    *day = d;
-}
-
+// epoch 秒 → "YYYY-MM-DD HH:MMZ"（UTC）。实现已上移到 app_clock：
+// 用量页要显示同一件事，日历算法不该有两个副本。这里保留旧名字，
+// 因为调用方（以及它们的测试）只关心"天气页的这行字"。
 bool weather_view_format_utc(int32_t epoch, char *buf, size_t cap) {
-    if (buf == NULL || cap == 0) {
-        return false;
-    }
-    buf[0] = '\0';
-    if (epoch <= 0) {
-        return false;
-    }
-
-    int64_t days = epoch / 86400;
-    int64_t seconds = epoch % 86400;
-    int year = 0;
-    unsigned month = 0;
-    unsigned day = 0;
-    civil_from_days(days, &year, &month, &day);
-
-    int written = snprintf(buf, cap, "%04d-%02u-%02u %02u:%02uZ", year, month, day,
-                           (unsigned)(seconds / 3600), (unsigned)((seconds % 3600) / 60));
-    if (written < 0 || (size_t)written >= cap) {
-        buf[0] = '\0';
-        return false;
-    }
-    return true;
+    return app_clock_format_utc(epoch, buf, cap);
 }
 
 bool weather_view_updated(weather_view_state_t state, bool stale, int64_t age_ms,

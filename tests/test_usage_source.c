@@ -73,6 +73,34 @@ static void test_arrays_and_extra_keys_are_ignored(void) {
     assert(s.has_limit);
 }
 
+// last_30_days.cost 是唯一从数组外圈取的"长期"字段：页面用它出一行 30d 花费。
+// 缺失即隐藏那一行，不能变成 0。
+static void test_last_30_days_cost(void) {
+    usage_state_t s;
+    assert(usage_parse(DOC_EXAMPLE, &s));
+    assert(s.has_days30);
+    assert(s.days30_cost_1e4 == 125000); // 12.5 → 125000
+
+    assert(usage_parse("{\"daily_cost_used_usd\":1,\"daily_cost_remaining_usd\":1,"
+                       "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}",
+                       &s));
+    assert(!s.has_days30);
+    assert(s.days30_cost_1e4 == 0);
+
+    // 类型不符 → 当作没给（未知），整报文仍可用。
+    assert(usage_parse("{\"last_30_days\":{\"cost\":\"12.5\"},"
+                       "\"daily_cost_used_usd\":1,\"daily_cost_remaining_usd\":1,"
+                       "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}",
+                       &s));
+    assert(!s.has_days30);
+
+    // 数值越界 → 单位可能不是 points，整报文失败。
+    assert(!usage_parse("{\"last_30_days\":{\"cost\":-1},"
+                        "\"daily_cost_used_usd\":1,\"daily_cost_remaining_usd\":1,"
+                        "\"today\":{\"requests\":1,\"errors\":0,\"total_tokens\":1}}",
+                        &s));
+}
+
 // 类型不符（字符串）→ 未知额度但整报文仍可用；数值越界 → 整报文失败（单位可能不是 points）。
 static void test_wrong_type_limit_is_unknown_but_bad_range_fails(void) {
     usage_state_t s;
@@ -202,10 +230,24 @@ static void test_format_points(void) {
 
 static void test_format_compact(void) {
     char buf[16];
-    assert(usage_format_compact(2100, buf, sizeof buf));
-    assert(strcmp(buf, "2100") == 0);
+    // 千以下保留个位：999 不该写成 "0.9k"。
+    assert(usage_format_compact(999, buf, sizeof buf));
+    assert(strcmp(buf, "999") == 0);
     assert(usage_format_compact(0, buf, sizeof buf));
     assert(strcmp(buf, "0") == 0);
+    // 千档：文档口径 88214 → 88.2k。
+    assert(usage_format_compact(1000, buf, sizeof buf));
+    assert(strcmp(buf, "1.0k") == 0);
+    assert(usage_format_compact(88214, buf, sizeof buf));
+    assert(strcmp(buf, "88.2k") == 0);
+    assert(usage_format_compact(180600, buf, sizeof buf));
+    assert(strcmp(buf, "180.6k") == 0);
+    // 四舍五入边界：1049 → 1.0k，1050 → 1.1k。
+    assert(usage_format_compact(1049, buf, sizeof buf));
+    assert(strcmp(buf, "1.0k") == 0);
+    assert(usage_format_compact(1050, buf, sizeof buf));
+    assert(strcmp(buf, "1.1k") == 0);
+    // 百万档与十亿档。
     assert(usage_format_compact(1234567, buf, sizeof buf));
     assert(strcmp(buf, "1.2M") == 0);
     assert(usage_format_compact(88200123, buf, sizeof buf));
@@ -216,6 +258,8 @@ static void test_format_compact(void) {
     assert(strcmp(buf, "1.0B+") == 0);
     assert(usage_format_compact(-77, buf, sizeof buf));
     assert(strcmp(buf, "0") == 0);
+    // 紧凑显示永不出现美元符号。
+    assert(strchr(buf, '$') == NULL);
     char tiny[3] = {0};
     assert(!usage_format_compact(88200123, tiny, sizeof tiny));
     assert(tiny[0] == '\0');
@@ -241,6 +285,7 @@ int main(void) {
     test_url_buffer_contract();
     test_parse_documented_example();
     test_arrays_and_extra_keys_are_ignored();
+    test_last_30_days_cost();
     test_missing_cap_is_unknown_not_zero();
     test_wrong_type_limit_is_unknown_but_bad_range_fails();
     test_required_fields_missing_fail();

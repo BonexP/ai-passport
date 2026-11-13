@@ -115,6 +115,16 @@ bool usage_parse(const char *json, usage_state_t *out) {
         return false;
     }
 
+    // last_30_days.cost 可选：缺失/类型不符 → 不显示那一行（has_days30 = false）。
+    // 但它必须是合法点数范围，否则单位可能不是 points，整报文判失败。
+    int32_t days30 = 0;
+    bool days30_found = false;
+    if (!read_points_opt(json, "last_30_days.cost", &days30_found, &days30)) {
+        return false;
+    }
+    out->has_days30 = days30_found;
+    out->days30_cost_1e4 = days30;
+
     (void)json_field_string(json, "daily_reset_at", out->reset_at, sizeof out->reset_at);
 
     out->has_data = true;
@@ -152,10 +162,16 @@ bool usage_format_compact(int64_t value, char *buf, size_t cap) {
     }
 
     int written = 0;
-    if (value < 1000000) {
+    if (value < 1000) {
+        // 千以下按个位显示：999 个 token 写成 "0.9k" 会丢掉信息，也不更像人话。
         written = snprintf(buf, cap, "%lld", (long long)value);
+    } else if (value < 1000000) {
+        // 四舍五入到 0.1k，再拆整数位与小数位。88214 → 882.1 → "88.2k"
+        // 注意 88214 在 k 档里是 88.214k，文档的 88.2k 就是这个精度。
+        const long long tenths = (value + 50) / 100;
+        written = snprintf(buf, cap, "%lld.%lldk", tenths / 10, tenths % 10);
     } else if (value < 1000000000) {
-        // 四舍五入到 0.1 M，再拆整数位与小数位。
+        // 四舍五入到 0.1M，再拆整数位与小数位。
         const long long tenths = (value + 50000) / 100000;
         written = snprintf(buf, cap, "%lld.%lldM", tenths / 10, tenths % 10);
     } else {
