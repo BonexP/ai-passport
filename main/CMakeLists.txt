@@ -46,6 +46,7 @@ idf_component_register(
          "net_snapshot.c"
          "net_snapshot_store.c"
          "page_weather.c"
+         "page_usage.c"
          "page_ring.c"
     INCLUDE_DIRS "."
     REQUIRES bsp bt esp_event esp_hw_support esp_http_client esp_http_server esp_netif esp_timer

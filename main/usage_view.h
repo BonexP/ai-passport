@@ -53,7 +53,10 @@ const char *usage_view_message(usage_view_state_t state);
 // 标题行下方那一行：有数据时说明最近一次请求的结局（含"用的是什么时间的数据"），
 // 没有数据时就是状态文案。返回 false 表示这一行不显示。
 //
-// stale 与 age_ms 的语义同 weather_view_updated：跨重启只能用快照里的绝对时刻。
+// stale 参数目前恒由调用方传 false：用量不做持久化（见 project-plan.md §9 第 13 条），
+// 所以不存在"从 NVS 读回来的旧副本"。保留这个参数是为了让本函数继续与
+// weather_view_updated 同构——将来若真要持久化，调用侧不用改签名。
+// age_ms < 0 表示"不知道多久前"，此时只报前缀，不编一个时间。
 bool usage_view_status_line(usage_view_state_t state, usage_status_t status, bool stale,
                             int64_t age_ms, int32_t fetched_epoch, char *buf, size_t cap);
 

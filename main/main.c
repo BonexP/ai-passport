@@ -20,6 +20,7 @@
 #include "page_ring.h"
 #include "page_router.h"
 #include "page_status.h"
+#include "page_usage.h"
 #include "page_weather.h"
 #include "ui_pixel.h"
 #include "wifi_profile_service.h"
@@ -161,14 +162,13 @@ static void services_resume(void) {
     }
 }
 
-// 进入天气页。调用方必须已经持有 LVGL 锁。
-// 网络任务是懒启动的：没打开过天气页就不占那 6 KB 栈。
+// 进入天气页。调用方必须已经持有 LVGL 锁，且已经销毁了上一页。
+// 网络任务是懒启动的：没打开过任何产品页就不占那 6 KB 栈。
 static void enter_weather_page(void) {
-    status_page_destroy();
     page_weather_build();
     s_page = PAGE_WEATHER;
 
-    // 启动时若 SNTP 没起来（netif 尚未就绪），进入天气页是一个明确的"现在要用网络"
+    // 启动时若 SNTP 没起来（netif 尚未就绪），进入产品页是一个明确的"现在要用网络"
     // 的信号，这里再试一次；app_time_start 幂等。
     if (!app_time_is_valid()) {
         (void)app_time_start();
@@ -183,13 +183,71 @@ static void enter_weather_page(void) {
     net_worker_request_refresh(NET_SOURCE_WEATHER); // 进页面立即判断一次，不必等 10 分钟
 }
 
-// 离开天气页回状态页。调用方必须已经持有 LVGL 锁。
-static void leave_weather_page(void) {
-    // 先关门再拆页面：worker 不会再为新的一帧发请求。
-    net_worker_set_visible(NET_SOURCE_WEATHER, false);
-    page_weather_destroy();
-    status_page_build();
-    s_page = PAGE_STATUS;
+// 进入用量页。与天气页同构，只换页面与数据源。
+static void enter_usage_page(void) {
+    page_usage_build();
+    s_page = PAGE_USAGE;
+
+    if (!app_time_is_valid()) {
+        (void)app_time_start();
+    }
+
+    esp_err_t e = net_worker_start();
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "网络任务启动失败: %s", esp_err_to_name(e));
+    }
+    net_worker_set_visible(NET_SOURCE_USAGE, true);
+    net_worker_request_refresh(NET_SOURCE_USAGE);
+}
+
+// 销毁一个产品页并关掉它的源。target 是"要离开的那一页"。
+// 先关门再拆页面：worker 不会再为新的一帧发请求。
+static void leave_product_page(page_id_t page) {
+    switch (page) {
+    case PAGE_WEATHER:
+        net_worker_set_visible(NET_SOURCE_WEATHER, false);
+        page_weather_destroy();
+        break;
+    case PAGE_USAGE:
+        net_worker_set_visible(NET_SOURCE_USAGE, false);
+        page_usage_destroy();
+        break;
+    default:
+        break; // 状态页/菜单/配网不是产品页，由调用方各自处理
+    }
+}
+
+// 产品页环的统一入口。调用方必须已经持有 LVGL 锁。
+//
+// 这里把原来"状态↔天气"的两页特例收成一个函数：三页之后特例会变成六个分支，
+// 每加一页就翻倍。顺序与装箱都在 page_ring（纯逻辑、有主机测试）里。
+static void page_switch(page_id_t target) {
+    if (target == s_page) {
+        return; // page_ring 对非环内页原样返回，这里据此忽略
+    }
+
+    leave_product_page(s_page);
+    if (s_page == PAGE_STATUS) {
+        // 状态页不是"产品页"但也是环成员：它没有源要关，只需要销毁屏。
+        // 菜单/配网不在环里，走不到这条路径。
+        status_page_destroy();
+    }
+
+    switch (target) {
+    case PAGE_STATUS:
+        status_page_build();
+        s_page = PAGE_STATUS;
+        break;
+    case PAGE_WEATHER:
+        enter_weather_page();
+        break;
+    case PAGE_USAGE:
+        enter_usage_page();
+        break;
+    default:
+        // 环里不该出现别的页；不改状态是这里唯一安全的处理。
+        break;
+    }
 }
 
 static demo_nav_input_t navigation_input(bsp_btn_t btn, bsp_btn_ev_t event) {
@@ -208,8 +266,10 @@ static void process_input(const input_event_t *input) {
 
     if (route == ROUTE_TO_STATUS) {
         if (!bsp_lvgl_lock(500)) return;
-        if (s_page == PAGE_WEATHER) {
-            leave_weather_page();
+        if (s_page == PAGE_WEATHER || s_page == PAGE_USAGE) {
+            // 长按 OK 从任一产品页回状态页：统一走 page_switch，
+            // 免得每加一页就在这里多一个分支、并忘了关掉该页的数据源。
+            page_switch(PAGE_STATUS);
         } else {
             if (s_menu_scr != NULL) {
                 lv_obj_delete(s_menu_scr);
@@ -223,27 +283,33 @@ static void process_input(const input_event_t *input) {
         return;
     }
 
-    // 产品页环：短按上下在状态页与天气页之间切换。菜单/配网不在环里，
-    // page_ring 会原样返回当前页，这里据此忽略。
+    // 产品页环：短按上下在状态页、天气页、用量页之间切换。菜单/配网不在环里，
+    // page_ring 会原样返回当前页，这里据此忽略。三页之后不再写特例，统一走
+    // page_switch；顺序与装箱都在 page_ring（纯逻辑、有主机测试）。
     if (route == ROUTE_PAGE_NEXT || route == ROUTE_PAGE_PREV) {
         const page_id_t target =
             (route == ROUTE_PAGE_NEXT) ? page_ring_next(s_page) : page_ring_prev(s_page);
         if (target == s_page) return;
         if (!bsp_lvgl_lock(500)) return;
-        if (s_page == PAGE_STATUS && target == PAGE_WEATHER) {
-            enter_weather_page();
-        } else if (s_page == PAGE_WEATHER && target == PAGE_STATUS) {
-            leave_weather_page();
-        }
+        page_switch(target);
         bsp_lvgl_unlock();
         return;
     }
 
-    // 天气页单击 OK：只投递请求，真正的 TLS 在 worker 里跑。
+    // 产品页单击 OK：只投递请求，真正的 TLS 在 worker 里跑。
     if (route == ROUTE_REFRESH_WEATHER) {
         net_worker_request_refresh(NET_SOURCE_WEATHER);
         if (bsp_lvgl_lock(500)) {
             page_weather_refresh(); // 让 "Updating..." 立刻可见
+            bsp_lvgl_unlock();
+        }
+        return;
+    }
+
+    if (route == ROUTE_REFRESH_USAGE) {
+        net_worker_request_refresh(NET_SOURCE_USAGE);
+        if (bsp_lvgl_lock(500)) {
+            page_usage_refresh();
             bsp_lvgl_unlock();
         }
         return;
