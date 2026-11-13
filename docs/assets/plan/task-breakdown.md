@@ -14,8 +14,8 @@ the P2.1 bounded response buffer and `net_http` transport, P2.2 field extraction
 Open-Meteo decision, the P2.4 weather page and the P2.7 offline snapshot are implemented with host
 tests. P2.5 and P2.6 (endpoint health, mDNS) have not started, and neither the weather path nor
 the new provisioning fields have been measured on hardware. P5 (the AMD Radeon Cloud usage page)
-is in progress: P5.1 through P5.4 are implemented with host tests and merged into
-`feature/my-custom`; P5.5 and P5.6 remain, and P5.7 needs the device. Usage is not persisted to
+is in progress: P5.1 through P5.6 are implemented with host tests and merged into
+`feature/my-custom`; only P5.7, the device measurement, remains. Usage is not persisted to
 NVS, see the decision note at the end of section 7. It is ordered
 before P3, see section 9. This file decomposes the
 phases in `project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each

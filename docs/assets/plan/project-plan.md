@@ -7,7 +7,8 @@
 Scope: custom firmware built on the `FoloToy/ai-passport` baseline (ESP-IDF 5.5.3).
 Status: P1 complete. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build. The device test on 2026-10-31 covered flashing, provisioning, joining the submitted network and every long-press menu page; three provisioning items remain unmeasured, see `task-breakdown.md`. P2 is in progress: the compile-time config, per-profile coordinates and place name, SNTP, the HTTPS transport, the weather page and the offline snapshot are implemented with host tests; the weather page and the new provisioning fields have not been measured on hardware. P5 (the AMD Radeon Cloud usage
 page, section 4.5) is in progress: the transport, the compile-time key, the usage parser and the
-display logic are implemented with host tests; the multi-source worker and the page remain. The
+display logic are implemented with host tests; the multi-source worker and the page are now
+implemented too, leaving only the device measurement. The
 usage record stays in RAM for the session only: it is not snapshotted to NVS, because the quota
 resets at midnight Beijing time and an overnight copy would be wrong rather than merely stale.
 It is ordered before P3.
