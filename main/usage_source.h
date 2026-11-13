@@ -23,6 +23,23 @@
 // 当天请求/错误/token 计数的上界。超出即认为报文不对劲，判解析失败而不是截断显示。
 #define USAGE_COUNT_LIMIT 1000000000ll // 1e9
 
+// 一次请求的结局。放在记录旁边而不是 usage_view 里，是因为它有两个消费方向：
+// worker 把结果连同记录一起发布，页面再把它翻译成人话。页面不应该反向定义数据。
+//
+// 与 http_result_t 的区别：那是传输层的机械分类（超时/TLS/截断），这里是"对用户
+// 意味着什么"。401 与 403 在传输层是同一个 HTTP_STATUS，对用户却是同一句话；
+// 它们与 429、5xx 又必须区分开——那是这张卡片空着时唯一能给出的解释。
+typedef enum {
+    USAGE_STATUS_NONE = 0,     // 本次开机还没有请求过
+    USAGE_STATUS_OK,           // 最近一次成功
+    USAGE_STATUS_NO_KEY,       // 编译期没配 key：没开 socket，也就没有网络结果
+    USAGE_STATUS_KEY_REJECTED, // 401 / 403：key 缺失或已被吊销
+    USAGE_STATUS_RATE_LIMITED, // 429：按 Retry-After 退避
+    USAGE_STATUS_UNAVAILABLE,  // 5xx、超时、TLS、传输层失败
+    USAGE_STATUS_TRUNCATED,    // 报文超过缓冲：内容不完整，不显示半截数字
+    USAGE_STATUS_BAD_BODY,     // 200 但不是可解析的用量报文（含门户页）
+} usage_status_t;
+
 // 一次成功的用量观测。
 typedef struct {
     bool    has_data;
@@ -37,6 +54,12 @@ typedef struct {
     int32_t today_requests;
     int32_t today_errors;
     int64_t today_total_tokens;
+
+    // 近 30 天花费（points，万分位整数）。页面显示它作为"长期趋势"的唯一代表：
+    // by_model / recent 是数组，json_field 不下降，v1 也不显示。
+    // 可选：报文缺失时为 has_days30 = false，页面据此隐藏那一行，而不是显示 0。
+    bool    has_days30;
+    int32_t days30_cost_1e4;
 
     // 重置时刻：原样保存接口给人的 +08:00 串（如 "2026-11-12T00:00:00+08:00"），
     // 只由 usage_format_reset_clock() 取出钟点，不做 epoch 运算。
@@ -64,8 +87,10 @@ bool usage_parse(const char *json, usage_state_t *out);
 // points（万分位整数）→ "3.2500" / "0.0032" / "1234.5678"。缓冲不足返回 false 并置空串。
 bool usage_format_points(int32_t points_1e4, char *buf, size_t cap);
 
-// 大数的紧凑显示：2100 → "2100"，1234567 → "1.2M"，88200123 → "88.2M"，999999999 → "1000.0M"（进位保留，不跳档）。
-// 只用于 token 计数这类不需要精确到个位的行。负值按 0 处理。永不输出 "$"。
+// 大数的紧凑显示（整数运算，永不输出 "$"）：
+//   999 → "999"，88214 → "88.2k"，1234567 → "1.2M"，1000000000 → "1.0B+"。
+// 千以下保留个位：把 999 写成 "0.9k" 既丢精度又不更像人话。
+// 只用于 token 计数这类不需要精确到个位的行。负值按 0 处理。
 bool usage_format_compact(int64_t value, char *buf, size_t cap);
 
 // "2026-11-12T00:00:00+08:00" → "00:00"。找不到 'T'、时:分不是两位数字时返回 false（buf 清空）。
