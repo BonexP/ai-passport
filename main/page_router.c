@@ -22,16 +22,19 @@ route_action_t page_router_resolve(page_id_t page, demo_nav_input_t input) {
         return ROUTE_IGNORE;
 
     case PAGE_WEATHER:
+    case PAGE_USAGE:
+        // 两个产品页的按键表完全相同，只是刷新动作指向各自的源。合成一个分支，
+        // 避免两份一模一样的三层 switch 以后各自漂移。
         switch (input) {
         case DEMO_NAV_INPUT_UP_CLICK:
             return ROUTE_PAGE_NEXT;
         case DEMO_NAV_INPUT_DOWN_CLICK:
             return ROUTE_PAGE_PREV;
         case DEMO_NAV_INPUT_OK_CLICK:
-            return ROUTE_REFRESH_WEATHER;
+            return page == PAGE_USAGE ? ROUTE_REFRESH_USAGE : ROUTE_REFRESH_WEATHER;
         case DEMO_NAV_INPUT_OK_LONG:
             return ROUTE_TO_STATUS;
-        case DEMO_NAV_INPUT_UP_LONG: // 配网入口只在状态页：天气页长按 UP 不开热点
+        case DEMO_NAV_INPUT_UP_LONG: // 配网入口只在状态页：产品页长按 UP 不开热点
         case DEMO_NAV_INPUT_OTHER:
             return ROUTE_IGNORE;
         }

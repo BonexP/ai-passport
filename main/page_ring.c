@@ -7,6 +7,7 @@
 static const page_id_t RING[] = {
     PAGE_STATUS,
     PAGE_WEATHER,
+    PAGE_USAGE,
 };
 
 #define RING_COUNT (sizeof RING / sizeof RING[0])
