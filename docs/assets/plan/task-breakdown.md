@@ -15,7 +15,8 @@ Open-Meteo decision, the P2.4 weather page and the P2.7 offline snapshot are imp
 tests. P2.5 and P2.6 (endpoint health, mDNS) have not started, and neither the weather path nor
 the new provisioning fields have been measured on hardware. P5 (the AMD Radeon Cloud usage page)
 is in progress: P5.1 through P5.4 are implemented with host tests and merged into
-`feature/my-custom`; P5.5 through P5.7 and the P5.8 device measurement remain. It is ordered
+`feature/my-custom`; P5.5 and P5.6 remain, and P5.7 needs the device. Usage is not persisted to
+NVS, see the decision note at the end of section 7. It is ordered
 before P3, see section 9. This file decomposes the
 phases in `project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each
 task can be taken on a topic branch and reviewed on its own.
@@ -111,13 +112,25 @@ path nor the new provisioning fields have been measured on hardware.
 | P5.2 | Compile-time key: `APP_CONFIG_AMD_KEY` in `main/app_config.local.h`, an accessor returning NULL when the section is absent, a boot self-check entry, plus the template and an `rc-` secret pattern in `tools/check_repo.py` | Contract tests cover a present, absent, empty and non-printable key; the template carries no real key; a deliberately planted `rc-` string fails the repository check |
 | P5.3 | `usage_source`: URL build that never contains the key, parse into `usage_state_t` at 1e-4 points, formatters for points, token counts and the reset clock | Host tests run the documented payload plus a missing field, `null`, a string where a number belongs, out-of-range values, a document with `by_model` present and a truncated body; the URL test asserts the key string does not appear |
 | P5.4 | `usage_view`: display state machine and the status-to-message table | Host tests cover no key, key rejected, rate limited, service unavailable, waiting for time, updating, retrying, and data with a stale status; the formatting table covers 8.1588, 0.0032, 0 and a six-figure cap |
-| P5.5 | Usage snapshot: versioned layout, NVS key `usage`, generic blob store API, save policy driven by the day change | Round-trip, version mismatch, length mismatch and day-change cases are host-tested; the existing weather wrappers still pass their own tests unchanged |
-| P5.6 | Multi-source worker: per-source schedule, visibility and refresh flags, at most one fetch per loop iteration | Host tests assert one source's failure does not clear the other's backoff, a hidden page never fetches, and the second source waits for the next iteration rather than sharing one |
-| P5.7 | Usage page and ring wiring: `PAGE_USAGE`, `ROUTE_REFRESH_USAGE`, `page_switch()` in `main.c`, and its own layout | Ring and router host tests cover the three-page order and the per-page key table; the screen result is Unverified until seen on the device |
-| P5.8 | Device measurement and delivery record | Body length, TLS chain result, heap watermark and the numbers against the console's Credits & Usage page are recorded; anything not measured is listed under Unverified |
+| P5.5 | Multi-source worker: per-source schedule, visibility and refresh flags, at most one fetch per loop iteration | Host tests assert one source's failure does not clear the other's backoff, a hidden page never fetches, and the second source waits for the next iteration rather than sharing one |
+| P5.6 | Usage page and ring wiring: `PAGE_USAGE`, `ROUTE_REFRESH_USAGE`, `page_switch()` in `main.c`, and its own layout | Ring and router host tests cover the three-page order and the per-page key table; the screen result is Unverified until seen on the device |
+| P5.7 | Device measurement and delivery record | Body length, TLS chain result, heap watermark and the numbers against the console's Credits & Usage page are recorded; anything not measured is listed under Unverified |
 
-P5.1 and P5.6 change shared code, so they land first and alone: a regression in the weather path
+P5.1 and P5.5 change shared code, so they land first and alone: a regression in the weather path
 would otherwise be indistinguishable from a usage bug. Everything after them is additive.
+
+**Decision: the usage record is not persisted.** An earlier draft of this plan gave usage its own
+versioned NVS snapshot, mirroring the weather path. That was dropped on 2026-11-14 for three
+reasons. First, the numbers this page exists to report reset at 00:00 Beijing time, so a snapshot
+carried across the night is not stale but wrong, and a wrong quota is worse than a blank card
+because the user believes it. Second, the day-boundary save policy that would have contained that
+wrongness needs date arithmetic over the `+08:00` offset purely to decide when to hide a value
+that should not have been stored at all. Third, it is the majority of the complexity in this
+phase: a versioned layout, a generic blob store API and their tests, for a page a developer
+opens while awake. The weather snapshot stays exactly as it is; it fills the seconds between wake
+and the first successful fetch, and a temperature from last night is still roughly right, which
+the usage quota is not. Usage therefore lives on the `app_data` bus for the session only, and a
+reboot shows `Updating...` until the first request returns.
 
 ## 8. Open decisions blocking work
 

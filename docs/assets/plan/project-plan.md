@@ -7,8 +7,10 @@
 Scope: custom firmware built on the `FoloToy/ai-passport` baseline (ESP-IDF 5.5.3).
 Status: P1 complete. Storage, boot sweep, status page, preset seeding and SoftAP provisioning are implemented and pass the host tests and the firmware build. The device test on 2026-10-31 covered flashing, provisioning, joining the submitted network and every long-press menu page; three provisioning items remain unmeasured, see `task-breakdown.md`. P2 is in progress: the compile-time config, per-profile coordinates and place name, SNTP, the HTTPS transport, the weather page and the offline snapshot are implemented with host tests; the weather page and the new provisioning fields have not been measured on hardware. P5 (the AMD Radeon Cloud usage
 page, section 4.5) is in progress: the transport, the compile-time key, the usage parser and the
-display logic are implemented with host tests; the usage snapshot, the multi-source worker, the
-page itself and every device measurement remain. It is ordered before P3.
+display logic are implemented with host tests; the multi-source worker and the page remain. The
+usage record stays in RAM for the session only: it is not snapshotted to NVS, because the quota
+resets at midnight Beijing time and an overnight copy would be wrong rather than merely stale.
+It is ordered before P3.
 Research date: 2026-10-27, against upstream `main` at `006c227`. AMD Radeon Cloud API research: 2026-11-10, against documentation last updated 2026-11-03.
 
 Bottom line: the feature set is feasible without an external helper service. The only
@@ -195,8 +197,8 @@ Every fact below was read on 2026-11-10 from the official documentation (last up
 | Response size: the documented example measures about 0.6 KB compact and 0.8 KB indented, `by_model` included | Fits the existing 4 KB shared body buffer with a wide margin. Truncation is a parse failure with its own message; partial numbers are never displayed |
 
 Decision: one authenticated GET per fetch, parsed by the existing field extractor into a second
-record on the `app_data` bus, cached in NVS under its own versioned snapshot, and rendered on a
-new page in the product ring: status, weather, usage, status.
+record on the `app_data` bus, and rendered on a new page in the product ring: status, weather,
+usage, status. The record lives in RAM for the session only; see the note on persistence below.
 
 Non-goals for v1, so the slice stays reviewable:
 
@@ -232,7 +234,7 @@ the page is a monitor, not a meter. Six requests per hour is far below both docu
 
 **What the network layer has to change.** The weather slice is single-source by construction:
 one schedule, one visibility flag, one refresh flag, one snapshot, one state record. A second
-source needs four splits, all host-testable:
+source needs three splits, all host-testable:
 
 1. `net_http_get_ex()` takes a header list and an optional status-code out-parameter;
    `net_http_get()` becomes a wrapper that passes neither, so the weather path and its existing
@@ -244,14 +246,20 @@ source needs four splits, all host-testable:
    single in-flight TLS session.
 3. `app_data` gains `usage_state_t` beside `weather_state_t`. One bus, one critical section, one
    `seq` per record; the UI redraws when either sequence moves.
-4. `net_snapshot_store` gains a generic blob save and load, so each feature owns its own versioned
-   layout and NVS key (`weather`, `usage`) and the two weather functions become wrappers. The
-   alternative, one store function pair per feature, grows without bound, and P3 adds a third
-   record.
 
 `main.c` needs the same treatment: its ring transition is a two-page special case today
 (status to weather, weather to status) and must become one `page_switch(page_id_t)` before a
 third page turns six transitions into six branches.
+
+**Persistence: weather keeps its snapshot, usage does not.** These two are not symmetric and the
+asymmetry is deliberate. The weather snapshot exists to fill the seconds between wake and the
+first successful fetch, and last night's temperature is still roughly right; the page marks it
+`Offline - saved` and prints the moment it was taken. The usage quota resets at 00:00 Beijing
+time, so a record carried across the night is not old but wrong, and a wrong balance is worse
+than an empty card because the user acts on it. Day-boundary arithmetic over the `+08:00` offset
+would be needed only to hide a value that should never have been written. Usage is therefore
+session-scoped on the `app_data` bus: a reboot shows `Updating...` until the first request
+returns. This also keeps `net_snapshot_store` single-purpose, with no generic blob layer.
 
 **Display.** 240x320 portrait, the existing product shell, no new visual language:
 
@@ -355,7 +363,7 @@ press on the same budget.
 | P2 | Compile-time config, per-profile coordinates, SNTP, HTTPS client with bounded buffers, minimal JSON, weather page and offline snapshot; endpoint health page pending | Shows stale snapshot when offline |
 | P3 | Stock page with eight rows and a host-tested polling scheduler | Correct data during trading hours |
 | P4 | Polish: CJK font, sleep policy, battery readout, offline queue | Overnight battery measurement |
-| P5 | AMD Radeon Cloud usage page: header injection, compile-time key, usage parser and formatters, versioned snapshot, multi-source worker, third ring page | The numbers match the console's Credits & Usage page; a missing or rejected key says so instead of showing an empty card; host tests cover parsing, formatting, display state and the snapshot |
+| P5 | AMD Radeon Cloud usage page: header injection, compile-time key, usage parser and formatters, multi-source worker, third ring page | The numbers match the console's Credits & Usage page; a missing or rejected key says so instead of showing an empty card; host tests cover parsing, formatting, display state and the per-source scheduling |
 
 P5 was added after the phases above, so its number is out of implementation order. It is
 scheduled before P3: both need the same multi-source split, and P5 is the smaller slice, so it
@@ -400,6 +408,12 @@ Unverified.
 12. A build without a key still shows the usage page, reading "Key not configured". Hiding it
     would make the ring order depend on the build, and the weather page already sets the
     precedent with "Location not set".
+13. Usage is **not** persisted, settled 2026-11-14. The daily quota resets at 00:00 Beijing time,
+    so an NVS copy read the next morning states a balance that no longer exists; the page would
+    be reporting a number the user then acts on wrongly. It also removes a versioned layout, a
+    generic blob store layer and the day-boundary arithmetic that existed only to decide when to
+    hide that copy. Weather keeps its snapshot: it covers the wake-to-first-fetch gap, is marked
+    `Offline - saved`, and a temperature from the previous night is still approximately true.
 
 ## 10. Evidence index
 
