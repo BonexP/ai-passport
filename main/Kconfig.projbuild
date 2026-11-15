@@ -1,0 +1,13 @@
+menu "FoloToy fork options"
+
+    config FOLOTOY_DIAG_REPL
+        bool "Enable USB Serial/JTAG diagnostics REPL"
+        depends on ESP_CONSOLE_USB_SERIAL_JTAG
+        default n
+        help
+            Enable a local diagnostics shell on the USB Serial/JTAG console.
+            The REPL is a development aid and is off by default so release
+            firmware behavior and resource use stay unchanged. It requires the
+            USB Serial/JTAG primary console.
+
+endmenu

@@ -20,6 +20,7 @@ This directory contains AI Passport engineering rules and reusable workflows, gr
 - [coding-conventions.md](engineering/coding-conventions.md): source-code and resource conventions, including Chinese font integration, blank/boxed text troubleshooting, and display acceptance.
 - [lvgl-chinese-fonts.md](engineering/lvgl-chinese-fonts.md): step-by-step CJK configuration, font generation/linking, fallback examples, glyph checks, and troubleshooting.
 - [wifi-provisioning.md](engineering/wifi-provisioning.md): this firmware's SoftAP provisioning (entry, timeout, HTTP input boundaries, teardown order and acceptance), with the upstream Bluetooth flow kept as history.
+- [usb-serial-repl.md](engineering/usb-serial-repl.md): optional USB Serial/JTAG diagnostics REPL, its compile switch, commands, runtime boundaries and device checks.
 
 ## CI
 

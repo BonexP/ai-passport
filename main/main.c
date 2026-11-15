@@ -4,6 +4,10 @@
 //   上/下 短按   菜单中=移动选中项;演示页中=该页自定义
 //   确定  短按   菜单中=进入选中项;演示页中=该页自定义
 //   确定  长按   演示页中=返回菜单(由本文件统一拦截)
+#include <stdio.h>
+
+#include "sdkconfig.h"
+
 #include "bsp_i2c.h"
 #include "bsp_display.h"
 #include "bsp_button.h"
@@ -13,6 +17,7 @@
 #include "app_config.h"
 #include "app_config_check.h"
 #include "app_time.h"
+#include "diag_repl.h"
 #include "demo.h"
 #include "demo_navigation.h"
 #include "key_guard.h"
@@ -249,6 +254,75 @@ static void page_switch(page_id_t target) {
         break;
     }
 }
+
+#if CONFIG_FOLOTOY_DIAG_REPL
+static void diag_set_err(char *err, size_t cap, const char *text) {
+    if (err != NULL && cap > 0) {
+        (void)snprintf(err, cap, "%s", text);
+    }
+}
+
+page_id_t diag_current_page(void) {
+    return s_page;
+}
+
+const char *diag_page_name(page_id_t page) {
+    switch (page) {
+    case PAGE_STATUS:
+        return "status";
+    case PAGE_WEATHER:
+        return "weather";
+    case PAGE_USAGE:
+        return "usage";
+    case PAGE_MENU:
+        return "menu";
+    case PAGE_DEMO:
+        return "demo";
+    case PAGE_PROVISION:
+        return "provision";
+    default:
+        return "unknown";
+    }
+}
+
+const char *diag_boot_state_name(void) {
+    return s_boot_state == BOOT_DONE ? "done" : "waiting";
+}
+
+bool diag_services_paused(void) {
+    return s_service_paused;
+}
+
+bool diag_page_switch(page_id_t target, char *err, size_t cap) {
+    if (target != PAGE_STATUS && target != PAGE_WEATHER && target != PAGE_USAGE) {
+        diag_set_err(err, cap, "target page is not a product page");
+        return false;
+    }
+    // 先做一次免加锁的快速判断，免得在菜单/演示/配网页上无谓地去抢 LVGL 锁。
+    // 真正的判定在锁内再做一次：s_page 由按键任务在锁内改写，只有锁内读到的
+    // 才是与 page_switch 一致的那份状态。
+    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE) {
+        diag_set_err(err, cap, "current page is not a product page");
+        return false;
+    }
+    if (!bsp_lvgl_lock(500)) {
+        diag_set_err(err, cap, "LVGL is busy");
+        return false;
+    }
+
+    bool ok = true;
+    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE) {
+        // 复核：从快速判断到这里之间，用户可能已经长按进了配网/菜单。
+        diag_set_err(err, cap, "current page is not a product page");
+        ok = false;
+    } else if (target != s_page) {
+        page_switch(target);
+    }
+
+    bsp_lvgl_unlock();
+    return ok;
+}
+#endif // CONFIG_FOLOTOY_DIAG_REPL
 
 static demo_nav_input_t navigation_input(bsp_btn_t btn, bsp_btn_ev_t event) {
     if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) return DEMO_NAV_INPUT_OK_LONG;
@@ -598,6 +672,12 @@ void app_main(void) {
     if (xTaskCreate(wifi_boot_task, "wifi_boot", 4096, NULL, 4, &s_boot_task) != pdPASS) {
         ESP_LOGE(TAG, "常驻 Wi-Fi 服务任务创建失败");
     }
+
+#if CONFIG_FOLOTOY_DIAG_REPL
+    // 放在所有大任务创建之后，避免 USB-Serial-JTAG 驱动缓冲区把堆切碎后
+    // 再创建 Wi-Fi/输入任务失败（社区实测过的启动顺序坑）。
+    diag_repl_start();
+#endif
 
     ESP_LOGI(TAG, "就绪:Display=%d Button=%d Audio=%d Battery=%d", s_ok[IDX_DISPLAY],
              s_ok[IDX_BUTTON], s_ok[IDX_AUDIO], s_ok[IDX_BATTERY]);
