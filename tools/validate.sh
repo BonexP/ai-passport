@@ -162,6 +162,10 @@ run_static_checks() {
         tests/test_page_ring.c main/page_ring.c \
         -o "${test_dir}/test_page_ring"
     "${test_dir}/test_page_ring"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_diag_repl_logic.c main/diag_repl_logic.c \
+        -o "${test_dir}/test_diag_repl_logic"
+    "${test_dir}/test_diag_repl_logic"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
         tests/test_page_status.c main/wifi_status.c main/wifi_status_shared.c \
