@@ -46,8 +46,9 @@ static void test_no_key_beats_everything(void) {
            USAGE_VIEW_NO_KEY);
     assert(usage_view_state(false, true, true, false, USAGE_STATUS_NO_KEY, false) ==
            USAGE_VIEW_NO_KEY);
-    // 没 key 却在别的状态下：仍然报没 key。NO_KEY 不会被"更新中"盖掉。
-    assert(usage_view_state(false, true, true, false, USAGE_STATUS_UPDATING, false) ==
+    // 没 key 却在别的状态下：仍然报没 key。NO_KEY 不会被任何请求结局盖掉
+    // （用 OK 表达"即便最近取到过数据，构建形态仍优先于请求结局"）。
+    assert(usage_view_state(false, true, true, false, USAGE_STATUS_OK, false) ==
            USAGE_VIEW_NO_KEY);
 }
 
