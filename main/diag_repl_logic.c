@@ -19,6 +19,9 @@ bool diag_page_arg_parse(const char *arg, page_id_t *out) {
     case '2':
         *out = PAGE_USAGE;
         return true;
+    case '3':
+        *out = PAGE_QUOTE;
+        return true;
     default:
         return false;
     }

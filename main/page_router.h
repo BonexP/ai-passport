@@ -14,6 +14,7 @@ typedef enum {
     PAGE_STATUS = 0, // 开机首屏
     PAGE_WEATHER,    // 天气页（产品页环的一员）
     PAGE_USAGE,      // AMD 用量页（产品页环的一员，P5.6）
+    PAGE_QUOTE,      // 行情页（产品页环的一员，P3.5）
     PAGE_MENU,       // 菜单（硬件自检入口，不在产品页环里）
     PAGE_DEMO,       // 某个演示页
     PAGE_PROVISION,  // 配网态（复用状态页的屏幕）
@@ -29,6 +30,7 @@ typedef enum {
     ROUTE_PAGE_PREV,     // 产品页环：上一页
     ROUTE_REFRESH_WEATHER, // 天气页单击 OK：请求立即刷新
     ROUTE_REFRESH_USAGE,   // 用量页单击 OK：请求立即刷新
+    ROUTE_REFRESH_QUOTE,   // 行情页单击 OK：请求立即刷新
     ROUTE_MENU_MOVE,     // 菜单光标移动（交给 demo_navigation）
     ROUTE_MENU_ENTER,    // 进入选中项（交给 demo_navigation 判定可用性）
     ROUTE_DEMO_KEY,      // 转发给当前页

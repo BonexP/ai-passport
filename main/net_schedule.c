@@ -13,6 +13,13 @@ void net_schedule_init(net_schedule_t *s) {
     s->force = false;
     s->failures = 0;
     s->last_attempt_ms = -1;
+    s->interval_ms = NET_SCHEDULE_INTERVAL_MS;
+}
+
+void net_schedule_set_interval(net_schedule_t *s, uint32_t interval_ms) {
+    if (s != NULL) {
+        s->interval_ms = interval_ms;
+    }
 }
 
 void net_schedule_set_context(net_schedule_t *s, bool connected, bool time_valid, bool visible) {
@@ -25,8 +32,11 @@ void net_schedule_set_context(net_schedule_t *s, bool connected, bool time_valid
 }
 
 uint32_t net_schedule_interval_ms(const net_schedule_t *s) {
-    if (s == NULL || s->failures == 0) {
+    if (s == NULL) {
         return NET_SCHEDULE_INTERVAL_MS;
+    }
+    if (s->failures == 0) {
+        return s->interval_ms;
     }
 
     // 30 s << (failures-1)，移位上限取到封顶值即可，避免对 8 位计数做无意义的移位。

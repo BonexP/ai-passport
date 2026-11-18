@@ -23,6 +23,7 @@
 typedef enum {
     NET_SOURCE_WEATHER = 0,
     NET_SOURCE_USAGE,
+    NET_SOURCE_QUOTE,   // P3 行情：60 秒间隔，仅行情页可见时取数
     NET_SOURCE_COUNT,
 } net_source_id_t;
 
