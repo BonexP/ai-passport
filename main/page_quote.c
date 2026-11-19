@@ -66,7 +66,9 @@ static void fmt_price2(int64_t v_1e4, char *buf, size_t cap) {
 }
 
 static void render_row(int index, const quote_item_t *item, const char *code) {
-    char upper[64], lower[64];
+    // label/price/pct 各带最多 23 字符，加上列宽填充最坏约 72 字节；
+    // 留出余量，避免 -Werror=format-truncation 把合法配置判成编译错误。
+    char upper[80], lower[64];
     if (item != NULL && item->valid) {
         char price[24], pct[24], change[24], amount[32];
         fmt_price2(item->price_1e4, price, sizeof price);
