@@ -50,6 +50,30 @@ static void test_usage_page_matches_the_weather_table_but_refreshes_itself(void)
     }
 }
 
+// 行情页的按键表与天气页逐格相同，唯一区别是刷新动作指向行情源。
+static void test_quote_page_matches_the_weather_table_but_refreshes_itself(void) {
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_UP_CLICK) == ROUTE_PAGE_NEXT);
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_DOWN_CLICK) == ROUTE_PAGE_PREV);
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_OK_CLICK) == ROUTE_REFRESH_QUOTE);
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_OK_LONG) == ROUTE_TO_STATUS);
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_UP_LONG) == ROUTE_IGNORE);
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_OTHER) == ROUTE_IGNORE);
+
+    // 三个产品页的刷新动作必须互不相同。
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_OK_CLICK) !=
+           page_router_resolve(PAGE_WEATHER, DEMO_NAV_INPUT_OK_CLICK));
+    assert(page_router_resolve(PAGE_QUOTE, DEMO_NAV_INPUT_OK_CLICK) !=
+           page_router_resolve(PAGE_USAGE, DEMO_NAV_INPUT_OK_CLICK));
+
+    const demo_nav_input_t inputs[] = {DEMO_NAV_INPUT_OTHER, DEMO_NAV_INPUT_UP_CLICK,
+                                       DEMO_NAV_INPUT_DOWN_CLICK, DEMO_NAV_INPUT_OK_LONG,
+                                       DEMO_NAV_INPUT_UP_LONG};
+    for (size_t i = 0; i < sizeof inputs / sizeof inputs[0]; i++) {
+        assert(page_router_resolve(PAGE_QUOTE, inputs[i]) ==
+               page_router_resolve(PAGE_WEATHER, inputs[i]));
+    }
+}
+
 static void test_provision_page_only_exits_on_ok_long(void) {
     assert(page_router_resolve(PAGE_PROVISION, DEMO_NAV_INPUT_OK_LONG) == ROUTE_PROVISION_EXIT);
     assert(page_router_resolve(PAGE_PROVISION, DEMO_NAV_INPUT_OK_CLICK) == ROUTE_IGNORE);
@@ -85,8 +109,8 @@ static void test_demo_page_forwards_and_exits(void) {
 }
 
 static void test_table_is_total(void) {
-    const page_id_t pages[] = { PAGE_STATUS, PAGE_WEATHER, PAGE_USAGE, PAGE_MENU, PAGE_DEMO,
-                                PAGE_PROVISION };
+    const page_id_t pages[] = { PAGE_STATUS, PAGE_WEATHER, PAGE_USAGE, PAGE_QUOTE,
+                                PAGE_MENU, PAGE_DEMO, PAGE_PROVISION };
     const demo_nav_input_t inputs[] = { DEMO_NAV_INPUT_OTHER, DEMO_NAV_INPUT_UP_CLICK,
                                         DEMO_NAV_INPUT_DOWN_CLICK, DEMO_NAV_INPUT_OK_CLICK,
                                         DEMO_NAV_INPUT_OK_LONG, DEMO_NAV_INPUT_UP_LONG };
@@ -107,6 +131,10 @@ static void test_table_is_total(void) {
                 assert(route == ROUTE_IGNORE || route == ROUTE_TO_STATUS ||
                        route == ROUTE_PAGE_NEXT || route == ROUTE_PAGE_PREV ||
                        route == ROUTE_REFRESH_USAGE);
+            } else if (pages[p] == PAGE_QUOTE) {
+                assert(route == ROUTE_IGNORE || route == ROUTE_TO_STATUS ||
+                       route == ROUTE_PAGE_NEXT || route == ROUTE_PAGE_PREV ||
+                       route == ROUTE_REFRESH_QUOTE);
             } else if (pages[p] == PAGE_PROVISION) {
                 assert(route == ROUTE_IGNORE || route == ROUTE_PROVISION_EXIT);
             } else if (pages[p] == PAGE_MENU) {
@@ -126,6 +154,7 @@ int main(void) {
     test_status_page_cycles_and_keeps_both_long_presses();
     test_weather_page_cycles_refreshes_and_exits();
     test_usage_page_matches_the_weather_table_but_refreshes_itself();
+    test_quote_page_matches_the_weather_table_but_refreshes_itself();
     test_provision_page_only_exits_on_ok_long();
     test_menu_ok_long_returns_to_status();
     test_menu_cursor_and_enter();

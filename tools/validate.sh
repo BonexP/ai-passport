@@ -121,6 +121,10 @@ run_static_checks() {
         -o "${test_dir}/test_usage_source"
     "${test_dir}/test_usage_source"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_quote_source.c main/quote_source.c \
+        -o "${test_dir}/test_quote_source"
+    "${test_dir}/test_quote_source"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_weather_view.c main/weather_view.c main/app_clock.c \
         -o "${test_dir}/test_weather_view"
     "${test_dir}/test_weather_view"
@@ -130,6 +134,10 @@ run_static_checks() {
         main/json_field.c main/app_clock.c \
         -o "${test_dir}/test_usage_view"
     "${test_dir}/test_usage_view"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_quote_view.c main/quote_view.c main/quote_source.c \
+        -o "${test_dir}/test_quote_view"
+    "${test_dir}/test_quote_view"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Itests/demo_stubs -Imain \
         tests/test_net_http.c main/net_http.c main/http_body.c \
         tests/demo_stubs/demo_http_client_stack.c \
@@ -207,7 +215,8 @@ run_static_checks() {
         -o "${test_dir}/test_page_ring"
     "${test_dir}/test_page_ring"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_diag_repl_logic.c main/diag_repl_logic.c \
+        tests/test_diag_repl_logic.c main/diag_repl_logic.c main/app_location.c \
+        main/wifi_profile.c \
         -o "${test_dir}/test_diag_repl_logic"
     "${test_dir}/test_diag_repl_logic"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \

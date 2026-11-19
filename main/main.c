@@ -26,6 +26,7 @@
 #include "page_router.h"
 #include "page_status.h"
 #include "page_usage.h"
+#include "page_quote.h"
 #include "page_weather.h"
 #include "ui_pixel.h"
 #include "wifi_profile_service.h"
@@ -205,6 +206,23 @@ static void enter_usage_page(void) {
     net_worker_request_refresh(NET_SOURCE_USAGE);
 }
 
+// 进入行情页。与天气/用量页同构，只换页面与数据源。
+static void enter_quote_page(void) {
+    page_quote_build();
+    s_page = PAGE_QUOTE;
+
+    if (!app_time_is_valid()) {
+        (void)app_time_start();
+    }
+
+    esp_err_t e = net_worker_start();
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "网络任务启动失败: %s", esp_err_to_name(e));
+    }
+    net_worker_set_visible(NET_SOURCE_QUOTE, true);
+    net_worker_request_refresh(NET_SOURCE_QUOTE);
+}
+
 // 销毁一个产品页并关掉它的源。target 是"要离开的那一页"。
 // 先关门再拆页面：worker 不会再为新的一帧发请求。
 static void leave_product_page(page_id_t page) {
@@ -216,6 +234,10 @@ static void leave_product_page(page_id_t page) {
     case PAGE_USAGE:
         net_worker_set_visible(NET_SOURCE_USAGE, false);
         page_usage_destroy();
+        break;
+    case PAGE_QUOTE:
+        net_worker_set_visible(NET_SOURCE_QUOTE, false);
+        page_quote_destroy();
         break;
     default:
         break; // 状态页/菜单/配网不是产品页，由调用方各自处理
@@ -249,6 +271,9 @@ static void page_switch(page_id_t target) {
     case PAGE_USAGE:
         enter_usage_page();
         break;
+    case PAGE_QUOTE:
+        enter_quote_page();
+        break;
     default:
         // 环里不该出现别的页；不改状态是这里唯一安全的处理。
         break;
@@ -274,6 +299,8 @@ const char *diag_page_name(page_id_t page) {
         return "weather";
     case PAGE_USAGE:
         return "usage";
+    case PAGE_QUOTE:
+        return "quote";
     case PAGE_MENU:
         return "menu";
     case PAGE_DEMO:
@@ -294,14 +321,16 @@ bool diag_services_paused(void) {
 }
 
 bool diag_page_switch(page_id_t target, char *err, size_t cap) {
-    if (target != PAGE_STATUS && target != PAGE_WEATHER && target != PAGE_USAGE) {
+    if (target != PAGE_STATUS && target != PAGE_WEATHER && target != PAGE_USAGE &&
+        target != PAGE_QUOTE) {
         diag_set_err(err, cap, "target page is not a product page");
         return false;
     }
     // 先做一次免加锁的快速判断，免得在菜单/演示/配网页上无谓地去抢 LVGL 锁。
     // 真正的判定在锁内再做一次：s_page 由按键任务在锁内改写，只有锁内读到的
     // 才是与 page_switch 一致的那份状态。
-    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE) {
+    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE &&
+        s_page != PAGE_QUOTE) {
         diag_set_err(err, cap, "current page is not a product page");
         return false;
     }
@@ -311,7 +340,8 @@ bool diag_page_switch(page_id_t target, char *err, size_t cap) {
     }
 
     bool ok = true;
-    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE) {
+    if (s_page != PAGE_STATUS && s_page != PAGE_WEATHER && s_page != PAGE_USAGE &&
+        s_page != PAGE_QUOTE) {
         // 复核：从快速判断到这里之间，用户可能已经长按进了配网/菜单。
         diag_set_err(err, cap, "current page is not a product page");
         ok = false;
@@ -340,7 +370,7 @@ static void process_input(const input_event_t *input) {
 
     if (route == ROUTE_TO_STATUS) {
         if (!bsp_lvgl_lock(500)) return;
-        if (s_page == PAGE_WEATHER || s_page == PAGE_USAGE) {
+        if (s_page == PAGE_WEATHER || s_page == PAGE_USAGE || s_page == PAGE_QUOTE) {
             // 长按 OK 从任一产品页回状态页：统一走 page_switch，
             // 免得每加一页就在这里多一个分支、并忘了关掉该页的数据源。
             page_switch(PAGE_STATUS);
@@ -384,6 +414,15 @@ static void process_input(const input_event_t *input) {
         net_worker_request_refresh(NET_SOURCE_USAGE);
         if (bsp_lvgl_lock(500)) {
             page_usage_refresh();
+            bsp_lvgl_unlock();
+        }
+        return;
+    }
+
+    if (route == ROUTE_REFRESH_QUOTE) {
+        net_worker_request_refresh(NET_SOURCE_QUOTE);
+        if (bsp_lvgl_lock(500)) {
+            page_quote_refresh();
             bsp_lvgl_unlock();
         }
         return;

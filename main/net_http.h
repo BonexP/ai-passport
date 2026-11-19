@@ -43,6 +43,9 @@ typedef struct {
     size_t                  *body_len;    // 可为 NULL
     int                     *status_out;  // 可为 NULL
     uint32_t                 timeout_ms;  // 0 表示使用 NET_HTTP_TIMEOUT_MS
+    // 默认 false：2xx 但 Content-Type 明确不含 json 时按 CONTENT_TYPE 处理（识别门户页）。
+    // 行情接口返回 `~` 分隔文本而非 JSON，置 true 让它跳过这项检查。
+    bool                     allow_non_json;
 } net_http_request_t;
 
 // 取 req->url 到 req->body[0..req->body_cap)。调用方负责缓冲的生命周期。

@@ -147,23 +147,34 @@ exponential backoff from 30 seconds up to 5 minutes after a failure.
 
 Watchlist: CSI AI Index, AI ETF, Nasdaq 100, S&P 500, NVIDIA, Tesla, spot gold, Micron.
 
-Eight symbols in one or two requests is a few KB of JSON, comfortably inside a static
-streaming buffer. Display: a 240x320 portrait screen fits eight rows of
-name / price / change percent / change amount / turnover.
+Data source settled on 2026-11-17: **Tencent quotes** at
+`https://qt.gtimg.cn/q=<code1>,<code2>,...`, one GET carrying a comma-separated code list.
+Evidence, measured against the live endpoint:
 
-Data source options, in preference order:
+- Keyless and unauthenticated; HTTPS returns 200. No secret, so no provisioning path and
+  nothing to commit.
+- The body is GBK-encoded `~`-delimited text, not JSON, of the form
+  `v_sh000001="1~name~code~price~..."`. Roughly 0.4 KB per symbol, so eight symbols are
+  about 3 KB and fit a static buffer with room to spare.
+- Names in the payload are GBK Chinese and never enter the display buffer. The page uses
+  the ASCII label from `app_config` (for example `NVDA` or `CSI AI`), which avoids both
+  encoding conversion and the missing-CJK-glyph problem of the default Montserrat font.
+- Symbol mapping: six-digit A-share codes take an `sh` or `sz` prefix; US letter codes take
+  a `us` prefix. Two watchlist entries have no usable payload in this format at Tencent, so
+  they fall back: `930713` (CSI AI Index) has no `~`-formatted data and falls back to
+  `sh000001` (SSE Composite Index) as a broad-market reference, while `XAU` (London gold is
+  comma-delimited) falls back to `usGLD` (a gold ETF).
+- Field indices are 0-based, taken from measurement: `[3]` current price, `[31]` change
+  amount, `[32]` change percent, `[37]` turnover (in 10k CNY for A-shares and ETFs, in USD
+  for US equities).
 
-- **Keyless public quote endpoints.** Typical of Chinese market data providers that return
-  compact JSON or delimited text over HTTPS with no authentication. Needs verification of
-  response size, encoding and rate limits before committing.
-- **Keyed API (iwencai or similar).** Richer data, but the key must be provisioned into NVS
-  and never committed. Adds a provisioning path for a secret, which is extra work.
+Display: a 240x320 portrait screen fits eight rows of
+label / price / change percent / change amount / turnover.
 
-The decision affects only the client layer, so it can be deferred until the display and
-polling scheduler are proven.
-
-Polling schedule is pure logic (market hours for A-shares and US equities, backoff outside
-trading hours) and must be host-tested.
+Polling: every 60 seconds, shorter than the weather page's 10 minutes, and only while the
+quote page is visible. Market-hours gating (A-shares and US equities) is pure logic and must
+be host-tested, but it is deferred to P4, consistent with section 8; the current slice polls
+on a fixed interval with visibility gating only.
 
 ### 4.4 Local network probe: feasible once narrowed
 
@@ -378,8 +389,11 @@ Unverified.
 
 1. ~~Weather provider~~ Settled: **Open-Meteo** (no key), location from the active profile's
    coordinates (2026-11-01).
-2. Stock provider: keyless endpoint sufficient, or does the keyed API justify the extra
-   provisioning work?
+2. ~~Stock provider: keyless endpoint sufficient, or does the keyed API justify the extra
+   provisioning work?~~ Settled 2026-11-17: **Tencent quotes** (`https://qt.gtimg.cn/q=`),
+   keyless and unauthenticated; GBK `~`-delimited text, about 3 KB for eight symbols.
+   Names stay out of the display buffer, which uses ASCII labels from `app_config`.
+   See section 4.3 for the field indices, symbol fallbacks and polling cadence.
 3. Audio: in scope this cycle or deferred to a later phase after the network stack is stable?
 4. Endpoint probe list and whether mDNS discovery is enough without explicit ICMP targets.
 5. How provisioning is entered: **settled - a long press on UP from the status page only.**

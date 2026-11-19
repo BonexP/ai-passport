@@ -28,11 +28,18 @@
 #include "esp_timer.h"
 #include "net_worker.h"
 #include "usage_view.h"
+#include "wifi_profile.h"
+#include "wifi_profile_nvs.h"
 #include "wifi_status.h"
 #include "wifi_status_shared.h"
 
 static const char *TAG = "diag_repl";
 static bool s_started;
+
+// export 命令的 NVS/store 缓冲放在静态存储里：wifi_profile_store_t 约 1.3 KB，
+// 而 REPL 任务栈只有 4096 B，压栈风险大。命令串行执行，静态复用是安全的。
+static wifi_profile_nvs_t   s_export_nvs;
+static wifi_profile_store_t s_export_store;
 
 static int64_t age_ms_from_uptime(int64_t fetched_uptime_ms) {
     if (fetched_uptime_ms < 0) {
@@ -186,7 +193,7 @@ static int cmd_heap(int argc, char **argv) {
 
 static int cmd_page(int argc, char **argv) {
     if (argc != 2) {
-        printf("usage: page <0|1|2>  (0=Status, 1=Weather, 2=Usage)\n");
+        printf("usage: page <0|1|2|3>  (0=Status, 1=Weather, 2=Usage, 3=Quote)\n");
         return 1;
     }
 
@@ -202,6 +209,55 @@ static int cmd_page(int argc, char **argv) {
         return 1;
     }
     printf("page=%s\n", diag_page_name(diag_current_page()));
+    return 0;
+}
+
+static int cmd_export(int argc, char **argv) {
+    bool reveal_secrets = false;
+    if (!diag_export_arg_parse(argc, argv, &reveal_secrets)) {
+        printf("usage: export [--secrets]\n");
+        return 1;
+    }
+
+    // 只读：单独开一份 NVS 句柄与 store 快照，不碰联网服务的私有状态。
+    esp_err_t err = wifi_profile_nvs_open(&s_export_nvs);
+    if (err != ESP_OK) {
+        printf("WIFIPROF_ERROR,stage=open,err=%s\n", esp_err_to_name(err));
+        return 1;
+    }
+    const wifi_kv_t kv = wifi_profile_nvs_kv(&s_export_nvs);
+    const wifi_profile_result_t result = wifi_profile_store_load(&s_export_store, &kv);
+    if (result != WIFI_PROFILE_OK) {
+        printf("WIFIPROF_ERROR,stage=load,result=%d\n", (int)result);
+        wifi_profile_nvs_close(&s_export_nvs);
+        return 1;
+    }
+
+    char buf[DIAG_EXPORT_LINE_MAX];
+    size_t n;
+    if (reveal_secrets) {
+        n = diag_export_warning(buf, sizeof buf);
+        if (n > 0) {
+            printf("%s\n", buf);
+        }
+    }
+    n = diag_export_header(wifi_profile_store_count(&s_export_store), buf, sizeof buf);
+    if (n > 0) {
+        printf("%s\n", buf);
+    }
+    const uint8_t count = wifi_profile_store_count(&s_export_store);
+    for (uint8_t i = 0; i < count; i++) {
+        const wifi_profile_t *p = wifi_profile_store_at(&s_export_store, i);
+        if (p != NULL && diag_export_line(p, i, reveal_secrets, buf, sizeof buf) > 0) {
+            printf("%s\n", buf);
+        }
+    }
+    n = diag_export_footer(buf, sizeof buf);
+    if (n > 0) {
+        printf("%s\n", buf);
+    }
+
+    wifi_profile_nvs_close(&s_export_nvs);
     return 0;
 }
 
@@ -229,9 +285,15 @@ static const esp_console_cmd_t s_commands[] = {
     },
     {
         .command = "page",
-        .help = "Switch product page: page <0|1|2> (0=Status, 1=Weather, 2=Usage).",
-        .hint = "<0|1|2>",
+        .help = "Switch product page: page <0|1|2|3> (0=Status, 1=Weather, 2=Usage, 3=Quote).",
+        .hint = "<0|1|2|3>",
         .func = cmd_page,
+    },
+    {
+        .command = "export",
+        .help = "Export saved Wi-Fi profiles and locations as CSV (--secrets to include passwords).",
+        .hint = "[--secrets]",
+        .func = cmd_export,
     },
 };
 

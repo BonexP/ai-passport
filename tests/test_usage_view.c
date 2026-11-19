@@ -46,11 +46,14 @@ static void test_no_key_beats_everything(void) {
            USAGE_VIEW_NO_KEY);
     assert(usage_view_state(false, true, true, false, USAGE_STATUS_NO_KEY, false) ==
            USAGE_VIEW_NO_KEY);
-    // 没 key 却在别的状态下：仍然报没 key。"更新中"在枚举里就是 USAGE_STATUS_NONE
-    // （首次请求未回），它同样盖不住 NO_KEY。
+    // 没 key 却在别的状态下：仍然报没 key。NO_KEY 不会被任何请求结局盖掉：
+    // NONE 是"首次请求还没回"，OK 是"最近确实取到过数据"，构建形态都优先；
+    // waited_long 是页面自己的等待状态，同样盖不住 NO_KEY。
     assert(usage_view_state(false, true, true, false, USAGE_STATUS_NONE, false) ==
            USAGE_VIEW_NO_KEY);
     assert(usage_view_state(false, true, true, false, USAGE_STATUS_NONE, true) ==
+           USAGE_VIEW_NO_KEY);
+    assert(usage_view_state(false, true, true, false, USAGE_STATUS_OK, false) ==
            USAGE_VIEW_NO_KEY);
 }
 
