@@ -306,7 +306,10 @@ void diag_repl_start(void) {
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_config.prompt = "passport>";
     repl_config.task_priority = 2;
-    repl_config.task_stack_size = 4096;
+    // `page` 命令会在这条任务里同步建页并画首帧，栈需求与按键任务相同：render 的
+    // app_data_t（约 1.1 KB）加上 LVGL 内部的 vfprintf 调用链，4 KB 不够（真机上
+    // 表现为 panic: Stack protection fault in task "console_repl"）。
+    repl_config.task_stack_size = 8192;
 
     esp_console_dev_usb_serial_jtag_config_t dev_config =
         ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();

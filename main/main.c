@@ -542,7 +542,12 @@ static void input_task(void *arg) {
 static esp_err_t input_dispatch_init(void) {
     s_input_queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
     if (!s_input_queue) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(input_task, "demo_input", 4096, NULL, 5, &s_input_task) != pdPASS) {
+    // 8192 而不是 4096：按键回调在这一层同步建页（page_*_build → 首帧 render），
+    // 而 render 会把 app_data_t（约 1.1 KB）连同 Wi-Fi 快照一起放上栈，下面还压着
+    // LVGL 的 lv_label_set_text → lv_snprintf → newlib vfprintf 调用链。真机上 4 KB
+    // 会踩穿栈（panic: Stack protection fault, task "demo_input"）。LVGL 任务本身
+    // 用 7 KB，这里取同一量级。
+    if (xTaskCreate(input_task, "demo_input", 8192, NULL, 5, &s_input_task) != pdPASS) {
         vQueueDelete(s_input_queue);
         s_input_queue = NULL;
         return ESP_ERR_NO_MEM;
