@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "app_location.h"
+#include "quote_source.h"
 #include "usage_source.h"
 
 // 接口返回的本地观测时间串，如 "2026-11-01T14:00"。原样显示，不解析。
@@ -48,9 +49,21 @@ typedef struct {
     usage_state_t  usage;             // 报文本身；has_data 为 false 时其余字段无意义
 } usage_record_t;
 
+// 行情记录（P3）：与用量同构的运行时外壳。行情不做持久化（额度/价格跨夜即失效），
+// 只活在会话 RAM 里；seq 由 bus 维护，fetched_* 与 status 是总线记账。
+// quote 是解析器的输出（quote_state_t），这里只包一层运行时信息。
+typedef struct {
+    uint16_t       seq;
+    int32_t        fetched_epoch;     // SNTP 时间；0 = 未知
+    int64_t        fetched_uptime_ms; // 单调时钟；-1 = 未知
+    quote_status_t status;
+    quote_state_t  quote;
+} quote_record_t;
+
 typedef struct {
     weather_state_t weather;
     usage_record_t  usage;
+    quote_record_t  quote;
 } app_data_t;
 
 typedef struct {
@@ -77,6 +90,10 @@ void app_data_publish_weather(app_data_bus_t *bus, const weather_state_t *next);
 // 原样带上，只改 status —— 这正是"key 被拒那天，昨天剩下的点数仍然有意义"的实现路径。
 // bus 只做整体覆盖，没有"只改状态"的魔法；保住数字是写者的责任。
 void app_data_publish_usage(app_data_bus_t *bus, const usage_record_t *next);
+
+// 整体覆盖行情记录并 seq++，全程持锁。next->seq 被忽略。
+// 与用量同样约定：失败时写者要把已有数字带上，只改 status。
+void app_data_publish_quote(app_data_bus_t *bus, const quote_record_t *next);
 
 // 整体拷贝出来，全程持锁。读侧通常是 LVGL 定时器，200-500 ms 一次。
 void app_data_read(const app_data_bus_t *bus, app_data_t *out);

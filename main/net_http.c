@@ -192,7 +192,7 @@ http_result_t net_http_get_ex(const net_http_request_t *req) {
         result = http_result_from_status(status, http_body_truncated(&buffer));
         // 门户页 / 错误页经常以 200 + text/html 返回。只有"本应成功"的响应才升级
         // 成 CONTENT_TYPE；非 2xx 仍报状态码，截断也仍报截断（那是更具体的原因）。
-        if (result == HTTP_RESULT_OK && probe.present &&
+        if (result == HTTP_RESULT_OK && !req->allow_non_json && probe.present &&
             !contains_ci(probe.content_type, "json")) {
             result = HTTP_RESULT_CONTENT_TYPE;
         }

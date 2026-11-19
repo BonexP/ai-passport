@@ -23,6 +23,7 @@
 #include "net_schedule.h"
 #include "net_snapshot.h"
 #include "net_snapshot_store.h"
+#include "quote_source.h"
 #include "usage_source.h"
 #include "weather_source.h"
 #include "wifi_status.h"
@@ -296,6 +297,103 @@ static bool fetch_usage_once(void) {
     return true;
 }
 
+// ---- 行情（P3） ----
+
+// 发布一条"只改状态"的行情记录：把上一条的数字原样带上。
+// 与 usage 同构：失败不清空已有行情，页面靠 status 解释卡片为什么没更新。
+static void publish_quote_status(quote_status_t status) {
+    app_data_t current;
+    app_data_read(app_data_shared(), &current);
+
+    quote_record_t next = current.quote;
+    next.status = status;
+    app_data_publish_quote(app_data_shared(), &next);
+}
+
+// 取一次行情。返回 true 表示已成功解析并发布，调度据此清零退避。
+//
+// 自选表来自 app_config（8 个默认标的，或本地头文件的自定义表）。逐个映射成
+// 腾讯接口代码；映射失败的标的（默认值里的 930713/XAU 会被映射到近似标的，
+// 一般都能成功）会被跳过。一个标的都没映射成功时不开 socket，直接判坏报文。
+static bool fetch_quote_once(void) {
+    const size_t count = app_config_quote_count();
+    const app_config_quote_t *table = app_config_quote_table();
+    if (count == 0 || table == NULL || count > QUOTE_COUNT_MAX) {
+        publish_quote_status(QUOTE_STATUS_BAD_BODY);
+        return false;
+    }
+
+    char codes[QUOTE_COUNT_MAX][QUOTE_SYMBOL_MAX];
+    char *code_ptrs[QUOTE_COUNT_MAX];
+    char *label_ptrs[QUOTE_COUNT_MAX];
+    size_t mapped = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (!quote_symbol_to_code(table[i].symbol, codes[mapped], sizeof codes[mapped])) {
+            continue;
+        }
+        code_ptrs[mapped] = codes[mapped];
+        label_ptrs[mapped] = (char *)table[i].label;
+        mapped++;
+    }
+    if (mapped == 0) {
+        publish_quote_status(QUOTE_STATUS_BAD_BODY);
+        return false;
+    }
+
+    char url[QUOTE_URL_MAX];
+    if (!quote_url_build(code_ptrs, mapped, url, sizeof url)) {
+        publish_quote_status(QUOTE_STATUS_BAD_BODY);
+        return false;
+    }
+
+    size_t len = 0;
+    int status = 0;
+    const net_http_request_t req = {
+        .url = url,
+        .headers = NULL,
+        .header_count = 0,
+        .body = s_body,
+        .body_cap = sizeof s_body,
+        .body_len = &len,
+        .status_out = &status,
+        .timeout_ms = NET_HTTP_TIMEOUT_MS,
+        // 腾讯行情返回 `~` 分隔文本而非 JSON，不能按"非 JSON 门户页"拒绝。
+        .allow_non_json = true,
+    };
+    const http_result_t result = net_http_get_ex(&req);
+    if (result != HTTP_RESULT_OK) {
+        ESP_LOGW(TAG, "行情请求失败: result=%d status=%d len=%u", (int)result, status,
+                 (unsigned)len);
+        // 传输层失败一律"服务不可用"；接口无鉴权，没有 key 被拒这类语义。
+        publish_quote_status(result == HTTP_RESULT_TRUNCATED ? QUOTE_STATUS_TRUNCATED
+                                                              : QUOTE_STATUS_UNAVAILABLE);
+        return false;
+    }
+
+    quote_state_t parsed;
+    if (!quote_parse(s_body, code_ptrs, label_ptrs, mapped, &parsed)) {
+        ESP_LOGW(TAG, "行情报文无法解析（%u 字节）", (unsigned)len);
+        publish_quote_status(QUOTE_STATUS_BAD_BODY);
+        return false;
+    }
+    if (!parsed.has_data) {
+        // 200 但一个标的都没解析出来：多半是网关门户页或接口改版。
+        publish_quote_status(QUOTE_STATUS_BAD_BODY);
+        return false;
+    }
+
+    quote_record_t next;
+    memset(&next, 0, sizeof next);
+    next.quote = parsed;
+    next.status = QUOTE_STATUS_OK;
+    next.fetched_epoch = (int32_t)app_time_now();
+    next.fetched_uptime_ms = uptime_ms();
+    app_data_publish_quote(app_data_shared(), &next);
+
+    ESP_LOGI(TAG, "行情已更新: %u 个标的", (unsigned)parsed.count);
+    return true;
+}
+
 // ---- 调度 ----
 
 // 该源此刻能不能取数。除了 net_schedule 的三个门，还有两条本模块自己的规则：
@@ -307,6 +405,10 @@ static bool source_gate_open(net_source_id_t id, const app_location_t *loc) {
         const char *key = app_config_amd_key();
         return key != NULL && key[0] != '\0';
     }
+    if (id == NET_SOURCE_QUOTE) {
+        // 行情与地点无关，只要连着网就能取（与用量同）。
+        return true;
+    }
     // 天气
     return loc != NULL && loc->has_location;
 }
@@ -317,6 +419,7 @@ static bool fetch_source(net_source_id_t id, net_snapshot_store_t *store,
     switch (id) {
     case NET_SOURCE_WEATHER: return fetch_weather_once(store, loc);
     case NET_SOURCE_USAGE:   return fetch_usage_once();
+    case NET_SOURCE_QUOTE:   return fetch_quote_once();
     case NET_SOURCE_COUNT:   break;
     }
     return false;
@@ -333,6 +436,9 @@ static void worker_task(void *arg) {
     for (size_t i = 0; i < NET_SOURCE_COUNT; i++) {
         net_schedule_init(&s_sources[i].sched);
     }
+    // 行情页可见时按 60 秒轮询（天气是 10 分钟）。交易时段门控推迟到 P4。
+    net_schedule_set_interval(&s_sources[NET_SOURCE_QUOTE].sched,
+                              NET_SCHEDULE_QUOTE_INTERVAL_MS);
 
     app_location_t last_location;
     app_location_clear(&last_location);
@@ -359,7 +465,7 @@ static void worker_task(void *arg) {
 
         const bool time_valid = app_time_is_valid();
         for (size_t i = 0; i < NET_SOURCE_COUNT; i++) {
-            // 天气的门是"有地点"，用量的门是"连着网"。
+            // 天气的门是"有地点"；用量与行情的门是"连着网"（都与地点无关）。
             const bool gate = (i == (size_t)NET_SOURCE_WEATHER) ? located : online;
             net_schedule_set_context(&s_sources[i].sched, gate, time_valid,
                                      s_sources[i].visible);

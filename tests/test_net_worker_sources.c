@@ -38,6 +38,21 @@ static const char *s_amd_key;
 
 const char *app_config_amd_key(void) { return s_amd_key; }
 
+// P3 行情：本文件测用量/天气的多源隔离，不测行情。自选表返回 0，
+// 行情源门禁虽开但映射不到任何代码，不会调用 net_http_get_ex（它的断言只认用量头）。
+size_t app_config_quote_count(void) { return 0; }
+const app_config_quote_t *app_config_quote_table(void) { return NULL; }
+bool quote_symbol_to_code(const char *symbol, char *out, size_t cap) {
+    (void)symbol; (void)out; (void)cap; return false;
+}
+bool quote_url_build(char **codes, size_t count, char *buf, size_t cap) {
+    (void)codes; (void)count; (void)buf; (void)cap; return false;
+}
+bool quote_parse(const char *body, char **codes, char **labels, size_t count,
+                 quote_state_t *out) {
+    (void)body; (void)codes; (void)labels; (void)count; (void)out; return false;
+}
+
 // 天气与用量两条路径分别记录"是否被调用"，这是"每轮最多取一个"的判据。
 static int s_weather_calls;
 static int s_usage_calls;

@@ -47,6 +47,21 @@ const char *app_config_amd_key(void) {
     return NULL; // 默认无 key：用量源的门禁始终关着，不影响天气用例
 }
 
+// P3 行情：本文件不测行情路径，给最小替身让链接通过。默认自选表为空，
+// 行情源门禁虽开但因映射不到代码而不会发请求。
+size_t app_config_quote_count(void) { return 0; }
+const app_config_quote_t *app_config_quote_table(void) { return NULL; }
+bool quote_symbol_to_code(const char *symbol, char *out, size_t cap) {
+    (void)symbol; (void)out; (void)cap; return false;
+}
+bool quote_url_build(char **codes, size_t count, char *buf, size_t cap) {
+    (void)codes; (void)count; (void)buf; (void)cap; return false;
+}
+bool quote_parse(const char *body, char **codes, char **labels, size_t count,
+                 quote_state_t *out) {
+    (void)body; (void)codes; (void)labels; (void)count; (void)out; return false;
+}
+
 bool weather_url_build(const app_location_t *loc, char *buf, size_t cap) {
     (void)loc;
     (void)buf;

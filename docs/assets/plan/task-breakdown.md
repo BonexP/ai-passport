@@ -17,7 +17,10 @@ the new provisioning fields have been measured on hardware. P5 (the AMD Radeon C
 is in progress: P5.1 through P5.6 are implemented with host tests and merged into
 `feature/my-custom`; only P5.7, the device measurement, remains. Usage is not persisted to
 NVS, see the decision note at the end of section 7. It is ordered
-before P3, see section 9. This file decomposes the
+before P3, see section 9. P3 (stock quotes) is in progress: the data source is settled on
+Tencent quotes (2026-11-17, see section 8); P3.1 through P3.3 (watchlist, provider decision,
+quote parser) are implemented with host tests, while P3.4 (polling scheduler) and P3.5
+(quote page) are in progress and pending integration. This file decomposes the
 phases in `project-plan.md` into atomic tasks with verifiable acceptance criteria, so that each
 task can be taken on a topic branch and reviewed on its own.
 
@@ -87,13 +90,13 @@ path nor the new provisioning fields have been measured on hardware.
 
 ## 5. P3: stock quotes
 
-| ID | Task | Acceptance |
-| --- | --- | --- |
-| P3.1 | Watchlist record: eight symbols with display names | Host test for ordering and label handling |
-| P3.2 | Quote provider decision, recorded with evidence | Response shape, size, encoding and rate limit documented; keyless path preferred |
-| P3.3 | Quote parser and data model | Host tests against captured payloads, including malformed input |
-| P3.4 | Polling scheduler: interval polling while the page is visible, failure backoff; session gating deferred to P4 | Backoff and visibility covered by host tests (`net_schedule` already does) |
-| P3.5 | Quote page: eight rows, name, price, change percent, change amount, turnover | Own UI; sign formatting covered by host test; rendering marked Unverified until seen |
+| ID | Task | State | Acceptance |
+| --- | --- | --- | --- |
+| P3.1 | Watchlist record: eight symbols with display names | **implemented, host-tested** | Host test for ordering and label handling; names use ASCII labels from `app_config`, so GBK payload names never enter the display buffer |
+| P3.2 | Quote provider decision, recorded with evidence | **implemented, host-tested (settled 2026-11-17)** | Tencent quotes (`https://qt.gtimg.cn/q=`), keyless, HTTPS 200; GBK `~`-delimited text about 3 KB for eight symbols; field indices `[3]`/`[31]`/`[32]`/`[37]`; `930713` falls back to `sh000001`, `XAU` falls back to `usGLD`. Evidence in `project-plan.md` section 4.3 |
+| P3.3 | Quote parser and data model | **implemented, host-tested** | Host tests against captured payloads, including malformed input; maps the delimited body into a bounded static record, no JSON |
+| P3.4 | Polling scheduler: interval polling while the page is visible, failure backoff; session gating deferred to P4 | **in progress, pending integration** | 60-second interval (shorter than the weather page's 10 minutes), visible-only fetching; backoff and visibility covered by host tests (`net_schedule` already does) |
+| P3.5 | Quote page: eight rows, label, price, change percent, change amount, turnover | **in progress, pending integration** | Own UI; sign formatting covered by host test; rendering marked Unverified until seen on the device |
 
 ## 6. P4: polish
 
@@ -139,7 +142,11 @@ note rather than left implicit:
 
 1. ~~Weather provider~~ - settled: **Open-Meteo**, keyless, location from the active profile
    (2026-11-01, see `project-plan.md` section 4.2).
-2. Stock provider: keyless endpoint or keyed API (blocks P3.2).
+2. ~~Stock provider: keyless endpoint or keyed API (blocks P3.2)~~ - settled: **Tencent
+   quotes**, `https://qt.gtimg.cn/q=<code1>,<code2>,...`, keyless and unauthenticated
+   (2026-11-17, see `project-plan.md` section 4.3). GBK `~`-delimited text, about 3 KB for
+   eight symbols; names stay out of the display buffer, which uses ASCII labels from
+   `app_config`. Unblocks P3.2.
 3. ~~Provisioning transport for P1.6~~ - settled: **SoftAP**, no Bluetooth, no mini-program
    (2026-10-29, see `project-plan.md` section 4.1). ~~How provisioning is entered~~ is settled
    too: hold UP on the status page; leave with a long press on OK or after five idle minutes

@@ -11,8 +11,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// 成功后到下一次的间隔。天气不需要更实时；行情（P3）会另给更短的间隔。
+// 成功后到下一次的间隔。天气不需要更实时；行情用更短的 interval_ms（见下）。
 #define NET_SCHEDULE_INTERVAL_MS (10 * 60 * 1000)
+// 行情页可见时的轮询间隔（P3）：60 秒。交易时段门控推迟到 P4。
+#define NET_SCHEDULE_QUOTE_INTERVAL_MS (60 * 1000)
 
 // 失败退避：30 s、60 s、120 s…… 封顶 5 分钟。
 #define NET_SCHEDULE_BACKOFF_BASE_MS (30 * 1000)
@@ -25,10 +27,14 @@ typedef struct {
     bool    force;           // 用户按了刷新：忽略间隔，只等门打开
     uint8_t failures;        // 连续失败次数，成功清零
     int64_t last_attempt_ms; // 上次开始取数的时刻；-1 = 本次开机还没试过
+    uint32_t interval_ms;    // 成功后的轮询间隔；默认 NET_SCHEDULE_INTERVAL_MS，行情改短
 } net_schedule_t;
 
-// 初始化：三个门都是关的，last_attempt = -1。
+// 初始化：三个门都是关的，last_attempt = -1，间隔为 NET_SCHEDULE_INTERVAL_MS。
 void net_schedule_init(net_schedule_t *s);
+
+// 设置成功后的轮询间隔。行情在 init 后调用它改成 NET_SCHEDULE_QUOTE_INTERVAL_MS。
+void net_schedule_set_interval(net_schedule_t *s, uint32_t interval_ms);
 
 // 更新外部条件。不触发取数，只改变 due() 的答案。
 void net_schedule_set_context(net_schedule_t *s, bool connected, bool time_valid, bool visible);

@@ -14,10 +14,12 @@ static void test_page_arguments(void) {
     assert(page == PAGE_WEATHER);
     assert(diag_page_arg_parse("2", &page));
     assert(page == PAGE_USAGE);
+    assert(diag_page_arg_parse("3", &page));
+    assert(page == PAGE_QUOTE);
 
     assert(!diag_page_arg_parse(NULL, &page));
     assert(!diag_page_arg_parse("", &page));
-    assert(!diag_page_arg_parse("3", &page));
+    assert(!diag_page_arg_parse("4", &page));
     assert(!diag_page_arg_parse("00", &page));
     assert(!diag_page_arg_parse("status", &page));
     assert(!diag_page_arg_parse("0", NULL));
