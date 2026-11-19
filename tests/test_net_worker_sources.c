@@ -61,6 +61,11 @@ static http_result_t s_ex_result = HTTP_RESULT_OK;
 static int           s_ex_status;
 static int           s_ex_body_valid; // 1 = 返回一份可解析的用量报文
 
+// 默认返回 USAGE_BODY；用例可以用它换成更大的、仍可解析的报文，
+// 用来验证共享响应缓冲的容量。长度含结尾 NUL 之外的全部字节。
+static const char *s_ex_custom_body;
+static size_t      s_ex_custom_len;
+
 static const char USAGE_BODY[] =
     "{\"daily_cost_limit_usd\":2.0,"
     "\"daily_cost_used_usd\":0.4512,"
@@ -81,12 +86,21 @@ http_result_t net_http_get_ex(const net_http_request_t *req) {
     if (req->status_out != NULL) {
         *req->status_out = s_ex_status;
     }
-    if (s_ex_result == HTTP_RESULT_OK && s_ex_body_valid && req->body != NULL) {
-        const size_t n = sizeof USAGE_BODY - 1;
+    if (s_ex_result == HTTP_RESULT_OK && s_ex_body_valid && req->body != NULL &&
+        req->body_cap > 0) {
+        const char *body = s_ex_custom_body != NULL ? s_ex_custom_body : USAGE_BODY;
+        const size_t n = s_ex_custom_body != NULL ? s_ex_custom_len : sizeof USAGE_BODY - 1;
         if (n < req->body_cap) {
-            memcpy(req->body, USAGE_BODY, n);
+            memcpy(req->body, body, n);
             req->body[n] = '\0';
             if (req->body_len != NULL) *req->body_len = n;
+        } else {
+            // 与真实 net_http_get_ex 一致：放不下的部分丢弃，并报告截断。
+            const size_t accepted = req->body_cap - 1;
+            memcpy(req->body, body, accepted);
+            req->body[accepted] = '\0';
+            if (req->body_len != NULL) *req->body_len = accepted;
+            return HTTP_RESULT_TRUNCATED;
         }
     }
     return s_ex_result;
@@ -133,8 +147,51 @@ static void reset_all(void) {
     s_ex_result = HTTP_RESULT_OK;
     s_ex_status = 200;
     s_ex_body_valid = 1;
+    s_ex_custom_body = NULL;
+    s_ex_custom_len = 0;
     s_amd_key = TEST_KEY_PRESENT;
     s_time_valid = true;
+}
+
+// 构造一份与真实接口同形、但大于旧 4 KB 缓冲的用量报文。
+// 只要求解析器读到的字段在开头；by_model 是数组，解析器按既有契约整体跳过。
+static char s_large_body[6000];
+
+static void build_large_usage_body(void) {
+    static const char PREFIX[] =
+        "{\"daily_cost_limit_usd\":2.0,"
+        "\"daily_cost_used_usd\":0.4512,"
+        "\"daily_cost_remaining_usd\":1.5488,"
+        "\"daily_reset_at\":\"2026-11-12T00:00:00+08:00\","
+        "\"today\":{\"requests\":42,\"errors\":3,\"total_tokens\":180600},"
+        "\"last_30_days\":{\"requests\":420,\"total_tokens\":1806000,\"cost\":1.2},"
+        "\"by_model\":[";
+    size_t n = sizeof PREFIX - 1;
+    memcpy(s_large_body, PREFIX, n);
+
+    // 30 个模型足以让报文越过 4096 字节，同时仍小于当前 8 KB 缓冲。
+    for (int i = 0; i < 30; i++) {
+        const int written = snprintf(
+            s_large_body + n, sizeof s_large_body - n,
+            "%s{\"model\":\"model-%02d\",\"requests\":100,\"errors\":1,"
+            "\"total_tokens\":1234567,\"prompt_tokens\":1000000,"
+            "\"completion_tokens\":234567,\"cost\":0.1234}",
+            i == 0 ? "" : ",", i);
+        assert(written > 0);
+        assert((size_t)written < sizeof s_large_body - n);
+        n += (size_t)written;
+    }
+
+    const int written = snprintf(s_large_body + n, sizeof s_large_body - n, "],\"recent\":[]}");
+    assert(written > 0);
+    assert((size_t)written < sizeof s_large_body - n);
+    n += (size_t)written;
+
+    // 这份报文必须大于旧缓冲、且能放进新缓冲，否则用例失去意义。
+    assert(n > 4096);
+    assert(n < 8192);
+    s_ex_custom_body = s_large_body;
+    s_ex_custom_len = n;
 }
 
 // 让一个源处于"门都开、且已到期"的状态。
@@ -410,6 +467,22 @@ static void test_success_fills_the_runtime_fields(void) {
     assert(got.usage.seq == 1);
 }
 
+// 真实接口在 2026-11 返回约 4.3 KB；旧 4 KB 缓冲会把完整报文误判成截断。
+// 这个用例直接走 fetch_usage_once，确认更大的报文仍能发布成功。
+static void test_large_usage_body_is_not_truncated(void) {
+    reset_all();
+    build_large_usage_body();
+
+    assert(fetch_usage_once());
+
+    app_data_t got;
+    app_data_read(app_data_shared(), &got);
+    assert(got.usage.status == USAGE_STATUS_OK);
+    assert(got.usage.usage.has_data);
+    assert(got.usage.usage.remaining_1e4 == 15488);
+    assert(got.usage.usage.today_requests == 42);
+}
+
 int main(void) {
     test_usage_gate_closed_without_a_key();
     test_weather_gate_needs_a_location();
@@ -426,6 +499,7 @@ int main(void) {
     test_visibility_flags_are_per_source();
     test_out_of_range_source_id_is_ignored();
     test_success_fills_the_runtime_fields();
+    test_large_usage_body_is_not_truncated();
     puts("net worker sources tests: PASS");
     return 0;
 }

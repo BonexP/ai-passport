@@ -30,9 +30,11 @@
 
 static const char *TAG = "net_worker";
 
-// 响应体上限。Open-Meteo 当前天气约 0.5 KB，AMD 用量报文约 0.6-0.8 KB；
-// 4 KB 两个源共用一块缓冲，因为它们本来就不会同时读。
-#define NET_BODY_MAX 4096
+// 响应体上限。Open-Meteo 当前天气约 0.4 KB；AMD 用量报文 2026-11 实测 4.3 KB
+// （by_model 3 项 + 四组统计对象；recent 默认不返回）。原 4 KB 的依据是文档里
+// 0.6-0.8 KB 的示例，实际接口早已超过它，4 KB 会把完整响应误判成截断。
+// 8 KB 给模型列表增长留出余量；两个源共用一块缓冲，因为它们本来就不会同时读。
+#define NET_BODY_MAX 8192
 
 #define NET_TASK_STACK 6144
 #define NET_TASK_PRIO 4
