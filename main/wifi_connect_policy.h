@@ -64,4 +64,22 @@ wifi_conn_step_t wifi_connect_policy_event(wifi_connect_policy_t *policy,
 // 调用方在等待事件超时后调用；到点则等价于一次 WIFI_CONN_EV_TIMEOUT。
 wifi_conn_step_t wifi_connect_policy_tick(wifi_connect_policy_t *policy, int64_t now_ms);
 
+// 驱动的掉线原因是否属于"我们自己换 profile 时主动断开"，而不是一次真正的失败。
+//
+// connect_index() 在连接下一条 profile 之前会调用 esp_wifi_disconnect()，驱动随即
+// 发出一个"STA 主动离开"的 STA_DISCONNECTED（实测 IDF 5.5.3 报 reason=36
+// WIFI_REASON_STA_LEAVING，老版本报 8 WIFI_REASON_ASSOC_LEAVE）。这个事件是切换
+// 动作的回声：如果把它当成新候选的失败，整轮遍历会在 5 ms 内被推完——真机表现
+// 就是"先试 active、再试下一条、立刻报没有可用 profile"，而驱动其实已经把最后
+// 一条连上了，界面却停在"无网络"。所以这两条原因必须被丢弃。
+//
+// 其他 reason（201 NO_AP_FOUND、204 握手超时、200 beacon 超时……）都是这次候选
+// 真的失败了，仍要推进状态机。
+bool wifi_connect_policy_ignores_disconnect(int reason_code);
+
+// 上游 esp_wifi_types_generic.h 里"STA 主动离开"的两个数值。写死而不是 include，
+// 与 wifi_status_reason_from_code() 保持同一套做法：映射留在纯逻辑里，可主机测试。
+#define WIFI_CONNECT_REASON_ASSOC_LEAVE 8
+#define WIFI_CONNECT_REASON_STA_LEAVING 36
+
 wifi_conn_state_t wifi_connect_policy_state(const wifi_connect_policy_t *policy);

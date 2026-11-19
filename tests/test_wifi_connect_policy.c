@@ -209,7 +209,26 @@ static void test_repeated_start_does_not_extend_the_timeout(void) {
     assert(wifi_connect_policy_tick(&policy, 10000).action == WIFI_CONN_ACT_CONNECT);
 }
 
+// 换 profile 时驱动回报的 reason=36/8（STA 主动离开）是"我们让它断的"，
+// 不能被当成候选失败。真机上这条事件与 connect_index() 之间只隔几毫秒，
+// 用它推进就会把整轮遍历吃光，界面停在"无网络"而链路其实是通的。
+static void test_self_disconnect_is_not_an_attempt_failure(void) {
+    assert(wifi_connect_policy_ignores_disconnect(WIFI_CONNECT_REASON_ASSOC_LEAVE));
+    assert(wifi_connect_policy_ignores_disconnect(WIFI_CONNECT_REASON_STA_LEAVING));
+    // 其余原因都是真正的失败：找不到 AP、握手超时、beacon 超时、认证被拒。
+    assert(!wifi_connect_policy_ignores_disconnect(0));
+    assert(!wifi_connect_policy_ignores_disconnect(2));
+    assert(!wifi_connect_policy_ignores_disconnect(3));
+    assert(!wifi_connect_policy_ignores_disconnect(15));
+    assert(!wifi_connect_policy_ignores_disconnect(39));
+    assert(!wifi_connect_policy_ignores_disconnect(200));
+    assert(!wifi_connect_policy_ignores_disconnect(201));
+    assert(!wifi_connect_policy_ignores_disconnect(204));
+    assert(!wifi_connect_policy_ignores_disconnect(205));
+}
+
 int main(void) {
+    test_self_disconnect_is_not_an_attempt_failure();
     test_empty_store_goes_straight_to_provisioning();
     test_start_tries_the_active_profile_first();
     test_failure_walks_from_zero_after_active();

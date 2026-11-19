@@ -125,3 +125,8 @@ wifi_conn_step_t wifi_connect_policy_tick(wifi_connect_policy_t *policy, int64_t
 wifi_conn_state_t wifi_connect_policy_state(const wifi_connect_policy_t *policy) {
     return policy != NULL ? policy->state : WIFI_CONN_IDLE;
 }
+
+bool wifi_connect_policy_ignores_disconnect(int reason_code) {
+    return reason_code == WIFI_CONNECT_REASON_ASSOC_LEAVE ||
+           reason_code == WIFI_CONNECT_REASON_STA_LEAVING;
+}

@@ -303,6 +303,11 @@ static void service_task(void *arg) {
                 continue;
             case SVC_EV_DISCONNECTED:
             case SVC_EV_LOCAL_FAIL:
+                // 我们自己换 profile 时的主动断开不算失败，否则一轮遍历会被打断。
+                if (msg.kind == SVC_EV_DISCONNECTED &&
+                    wifi_connect_policy_ignores_disconnect((int)msg.reason)) {
+                    continue;
+                }
                 if (msg.kind == SVC_EV_LOCAL_FAIL) {
                     s_fail = WIFI_FAIL_DRIVER;
                 } else if (s_associated) {
