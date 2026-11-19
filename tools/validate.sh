@@ -171,7 +171,8 @@ run_static_checks() {
         -o "${test_dir}/test_page_ring"
     "${test_dir}/test_page_ring"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_diag_repl_logic.c main/diag_repl_logic.c \
+        tests/test_diag_repl_logic.c main/diag_repl_logic.c main/app_location.c \
+        main/wifi_profile.c \
         -o "${test_dir}/test_diag_repl_logic"
     "${test_dir}/test_diag_repl_logic"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
